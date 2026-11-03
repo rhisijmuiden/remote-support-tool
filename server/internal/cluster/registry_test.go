@@ -3,7 +3,6 @@ package cluster
 import (
 	"context"
 	"errors"
-	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -11,41 +10,12 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/rhisijmuiden/remote-support-tool/server/internal/db"
+	"github.com/rhisijmuiden/remote-support-tool/server/internal/db/dbtest"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/secret"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/settings"
 )
 
-// testPool uses its own schema so it can run in parallel with other packages' tests.
-func testPool(t *testing.T) *pgxpool.Pool {
-	url := os.Getenv("RHIS_TEST_DATABASE_URL")
-	if url == "" {
-		t.Skip("RHIS_TEST_DATABASE_URL not set")
-	}
-	ctx := context.Background()
-	admin, err := db.Open(ctx, url)
-	if err != nil {
-		t.Fatal(err)
-	}
-	admin.Exec(ctx, `DROP SCHEMA IF EXISTS cluster_test CASCADE`)
-	if _, err := admin.Exec(ctx, `CREATE SCHEMA cluster_test`); err != nil {
-		t.Fatal(err)
-	}
-	admin.Close()
-	sep := "?"
-	if strings.Contains(url, "?") {
-		sep = "&"
-	}
-	pool, err := db.Open(ctx, url+sep+"search_path=cluster_test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := db.Migrate(ctx, pool); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(pool.Close)
-	return pool
-}
+func testPool(t *testing.T) *pgxpool.Pool { return dbtest.Fresh(t, "cluster") }
 
 func testRegistry(t *testing.T) *Registry {
 	pool := testPool(t)
