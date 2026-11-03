@@ -15,7 +15,7 @@
 #
 # Behind a reverse proxy, the proxy terminates the public HTTPS and forwards to
 # https://<server-ip>:443 here, so the hop to this server stays encrypted too. Caddy only
-# trusts X-Forwarded-* headers from the proxy address(es) given with --behind-proxy.
+# passes on X-Forwarded-For only from the proxy address(es) given with --behind-proxy.
 #
 # Running it again upgrades the binary and keeps the configuration, database and the
 # --domain/--behind-proxy choice (stored in /etc/rhis-remote/install.env).
@@ -161,18 +161,23 @@ ip="$(hostname -I | awk '{print $1}')"
 if [[ -n "$PROXY" ]]; then
   cat > /etc/caddy/Caddyfile.new <<CADDY
 # Managed by the RHIS Remote installer. Behind the reverse proxy $PROXY, which serves
-# https://$DOMAIN publicly. Caddy keeps the hop from the proxy encrypted with its internal CA
-# and only trusts X-Forwarded-* headers coming from the proxy.
+# https://$DOMAIN publicly. Caddy keeps the hop from the proxy encrypted with its internal CA.
+# Only requests from the proxy may pass on their X-Forwarded-For; for anyone else Caddy
+# reports the TCP peer itself. Works with Debian's Caddy 2.6 (no trusted_proxies needed).
 {
 	default_sni $ip
-	servers {
-		trusted_proxies static $PROXY
-	}
 }
 https://$DOMAIN, https://$ip, https://$(hostname) {
 	tls internal
 	encode zstd gzip
-	reverse_proxy 127.0.0.1:8080
+	@proxy remote_ip $PROXY
+	reverse_proxy @proxy 127.0.0.1:8080 {
+		header_up X-Forwarded-For "{http.request.header.X-Forwarded-For}, {http.request.remote.host}"
+	}
+	reverse_proxy 127.0.0.1:8080 {
+		header_up X-Forwarded-For {http.request.remote.host}
+		header_up -X-Real-IP
+	}
 }
 CADDY
 elif [[ -n "$DOMAIN" ]]; then
