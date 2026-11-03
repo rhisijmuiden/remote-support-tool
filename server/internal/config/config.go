@@ -4,6 +4,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"strings"
 
@@ -30,7 +31,10 @@ type Config struct {
 		Token  string `yaml:"token"` // optional GitHub token (private repos / rate limits)
 		APIURL string `yaml:"api_url"`
 	} `yaml:"update"`
-	Branding struct {
+	// AllowInsecureHTTP permits serving plain HTTP on a non-loopback address. Off by default:
+	// passwords and session cookies must never cross the network unencrypted.
+	AllowInsecureHTTP bool `yaml:"allow_insecure_http"`
+	Branding          struct {
 		ProductName string `yaml:"product_name"`
 		CompanyName string `yaml:"company_name"`
 	} `yaml:"branding"`
@@ -38,8 +42,8 @@ type Config struct {
 
 func Default() Config {
 	var c Config
-	c.Listen = ":8080"
-	c.PublicURL = "http://localhost:8080"
+	c.Listen = "127.0.0.1:8080"
+	c.PublicURL = "https://localhost"
 	c.DataDir = "/var/lib/rhis-remote"
 	c.Roles = []string{"all"}
 	c.Update.Repo = "rhisijmuiden/remote-support-tool"
@@ -106,7 +110,25 @@ func (c *Config) Validate() error {
 		roles = append(roles, r)
 	}
 	c.Roles = roles
+	if c.TLS.CertFile == "" && !c.AllowInsecureHTTP && !isLoopback(c.Listen) {
+		return fmt.Errorf("listen %q would serve plain HTTP on the network: listen on 127.0.0.1 behind the HTTPS proxy (Caddy), set tls.cert_file and tls.key_file, or set allow_insecure_http: true for a lab setup", c.Listen)
+	}
+	if !strings.HasPrefix(c.PublicURL, "https://") && !c.AllowInsecureHTTP {
+		return fmt.Errorf("public_url must start with https:// (got %q); set allow_insecure_http: true only for a lab setup", c.PublicURL)
+	}
 	return nil
+}
+
+func isLoopback(listen string) bool {
+	host, _, err := net.SplitHostPort(listen)
+	if err != nil {
+		return false
+	}
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 func (c *Config) HasRole(r string) bool {
