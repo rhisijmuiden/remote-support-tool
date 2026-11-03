@@ -10,6 +10,4 @@ node_modules/
 /data/
 *.env
 .DS_Store
-
-# Rust
-/client/target/
+client/target/

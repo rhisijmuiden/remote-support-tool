@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"strings"
 	"testing"
@@ -21,29 +22,37 @@ import (
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/db"
 )
 
-// testDB uses its own schema so it can run next to other packages' database tests.
+// testDB uses its own database, so it can run in parallel with other packages' database tests
+// (the backup tests run pg_dump on the shared test database).
 func testDB(t *testing.T) *pgxpool.Pool {
-	url := os.Getenv("RHIS_TEST_DATABASE_URL")
-	if url == "" {
+	raw := os.Getenv("RHIS_TEST_DATABASE_URL")
+	if raw == "" {
 		t.Skip("RHIS_TEST_DATABASE_URL not set")
 	}
 	ctx := context.Background()
-	admin, err := db.Open(ctx, url)
+	admin, err := db.Open(ctx, raw)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := admin.Exec(ctx, `DROP SCHEMA IF EXISTS agents_test CASCADE; CREATE SCHEMA agents_test`); err != nil {
-		t.Fatal(err)
+	const name = "rhis_agents_test"
+	var exists bool
+	admin.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname=$1)`, name).Scan(&exists)
+	if !exists {
+		if _, err := admin.Exec(ctx, `CREATE DATABASE `+name); err != nil {
+			t.Fatal(err)
+		}
 	}
 	admin.Close()
-	sep := "?"
-	if strings.Contains(url, "?") {
-		sep = "&"
-	}
-	pool, err := db.Open(ctx, url+sep+"search_path=agents_test")
+	u, err := url.Parse(raw)
 	if err != nil {
 		t.Fatal(err)
 	}
+	u.Path = "/" + name
+	pool, err := db.Open(ctx, u.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool.Exec(ctx, `DROP SCHEMA public CASCADE; CREATE SCHEMA public`)
 	if err := db.Migrate(ctx, pool); err != nil {
 		t.Fatal(err)
 	}

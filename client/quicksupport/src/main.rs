@@ -53,6 +53,9 @@ fn main() -> eframe::Result {
             });
             Config {
                 server: String::new(),
+                alternates: vec![],
+                logo_png: None,
+                accent: None,
                 product_name: "RHIS Remote".into(),
                 company_name: "RHIS".into(),
                 insecure_dev: false,

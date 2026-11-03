@@ -26,7 +26,7 @@ The technician enters the code in the portal under **Quick support**, where the 
 - **Consent first.** A code alone never gives access: the customer must click Allow for every session.
 - **Guessing codes does not work.** Codes have 9 digits (900 million options) and only exist while a QuickSupport window is open. A technician gets 20 wrong codes per 15 minutes; unknown and offline codes give the same answer. Registrations are limited to 30 per IP address per 15 minutes.
 - **Separate from managed devices.** Quick devices have kind `quick`: they are not listed under Devices, not counted on the dashboard, and an agent's code cannot be used on the Quick support page.
-- **No secrets in the download.** The appended block holds only the server address and the product and company name.
+- **No secrets in the download.** The appended block holds only the server addresses, branding and public update keys.
 - Every step is in the activity log: `quick.registered`, `session.started`, `quick.code_not_found`, `quick.closed`.
 
 ## Configuration
@@ -34,13 +34,13 @@ The technician enters the code in the portal under **Quick support**, where the 
 QuickSupport looks for its server in this order:
 
 1. `--server https://remote.example.com` on the command line
-2. The config block the server appends to the exe (`<json><u32 length>RHISQS01`)
-3. `rhis-quicksupport.json` next to the exe: `{"server": "https://remote.example.com", "company_name": "RHIS"}`
+2. The configuration the server or the client builder appends to the exe, in the client builder layout (`[padding][JSON][u32 length]RHISCFG1`, see client-builder.md); `servers` is a failover list
+3. `rhis-quicksupport.json` next to the exe: `{"servers": ["https://remote.example.com"], "company_name": "RHIS"}`
 4. `RHIS_SERVER_URL` at build time
 
-The server serves the exe from `gateway.agent_dir` (default `/opt/rhis-remote/agent`): `rhis-quicksupport_windows_amd64.exe` plus `rhis-quicksupport.version`. Releases include both and the installer puts them there.
+The server serves the exe from `gateway.agent_dir` (default `/opt/rhis-remote/agent`): `rhis-quick_windows_amd64.exe` plus `client.version` (the version of the Windows client workspace). Releases include both and the installer puts them there.
 
-**Code signing:** appending the config block changes the file after signing. Once a code signing certificate is in use (roadmap phase 7), the client builder should sign each server-specific build after the block is added.
+**Code signing:** the trailer sits before the Authenticode certificate table, so the client builder can sign a build after adding it. The plain download link appends it to the released exe as is.
 
 ## Info and updates
 
@@ -56,4 +56,4 @@ cargo run -p rhis-quicksupport -- --demo --lang nl
 cargo run -p rhis-quicksupport -- --server http://127.0.0.1:8080 --insecure-dev
 ```
 
-`--demo` plays the flow with a fake technician. `RHIS_QS_DEMO_STEP=ready|request|active|offline|connecting` holds one screen and `RHIS_QS_THEME=light|dark` forces a theme; both are used for the screenshots. Windows builds come from CI (`windows-clients` job); a Linux build is only for development.
+`--demo` plays the flow with a fake technician. `RHIS_QS_DEMO_STEP=ready|request|active|offline|connecting` holds one screen and `RHIS_QS_THEME=light|dark` forces a theme; both are used for the screenshots. Windows builds come from CI; a Linux build is only for development (it shares a generated test screen instead of the real one).

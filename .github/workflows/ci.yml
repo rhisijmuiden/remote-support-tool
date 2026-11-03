@@ -49,6 +49,7 @@ jobs:
           go vet ./...
           go test ./...
 
+  # Until the agent's Windows job lands in this file: builds and tests the client workspace.
   windows-clients:
     runs-on: windows-2025
     steps:
@@ -70,4 +71,4 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: rhis-quicksupport-windows
-          path: client/target/release/rhis-quicksupport.exe
+          path: client/target/release/rhis-quick.exe

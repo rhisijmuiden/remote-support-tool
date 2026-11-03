@@ -136,9 +136,16 @@ func TestQuickSupport(t *testing.T) {
 		t.Fatalf("download: %d %q", resp.StatusCode, body)
 	}
 	n := binary.LittleEndian.Uint32(body[len(body)-12:])
-	var cfg map[string]string
-	if err := json.Unmarshal(body[len(body)-12-int(n):len(body)-12], &cfg); err != nil || cfg["server"] != "https://remote.example.com" || cfg["company_name"] != "RHIS" {
-		t.Fatalf("trailer: %v %v", cfg, err)
+	var cfg struct {
+		Servers     []string `json:"servers"`
+		CompanyName string   `json:"company_name"`
+		Mode        string   `json:"mode"`
+	}
+	if err := json.Unmarshal(body[len(body)-12-int(n):len(body)-12], &cfg); err != nil || len(cfg.Servers) != 1 || cfg.Servers[0] != "https://remote.example.com" || cfg.CompanyName != "RHIS" || cfg.Mode != "quick" {
+		t.Fatalf("trailer: %+v %v", cfg, err)
+	}
+	if len(body)%8 != 0 {
+		t.Fatalf("trailer does not end on an 8-byte boundary: %d", len(body))
 	}
 	var latest struct{ Version, URL, SHA256 string }
 	resp, _ = http.Get(srv.URL + "/api/agent/v1/quick/latest")

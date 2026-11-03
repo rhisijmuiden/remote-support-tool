@@ -5,7 +5,7 @@ DATE    := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 PKG     := github.com/rhisijmuiden/remote-support-tool/server/internal/version
 LDFLAGS := -s -w -X $(PKG).Version=$(VERSION) -X $(PKG).Commit=$(COMMIT) -X $(PKG).BuildDate=$(DATE) -X $(PKG).Channel=$(CHANNEL)
 
-.PHONY: all web server test dist clean quicksupport
+.PHONY: all web server test dist clean
 
 all: web server
 
@@ -24,14 +24,8 @@ test:
 dist: all
 	mkdir -p dist/pkg
 	cp bin/rhis-remote deploy/debian/install.sh deploy/debian/rhis-remote.service deploy/debian/config.example.yaml dist/pkg/
-	# Windows clients built by CI (release.yml puts them in dist/agent).
-	if [ -d dist/agent ]; then mkdir -p dist/pkg/agent && cp dist/agent/* dist/pkg/agent/; fi
 	tar -C dist/pkg -czf dist/rhis-remote_linux_amd64.tar.gz .
 	cd dist && sha256sum rhis-remote_linux_amd64.tar.gz > checksums.txt
-
-# QuickSupport for Windows; on Linux this builds a development copy (try it with --demo).
-quicksupport:
-	cd client && cargo build --release -p rhis-quicksupport
 
 clean:
 	rm -rf bin dist

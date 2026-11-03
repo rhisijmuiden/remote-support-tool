@@ -13,42 +13,10 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # Windows clients (QuickSupport, and the agent once it joins the workspace).
-  windows:
-    runs-on: windows-2025
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            client/target
-          key: win-release-${{ hashFiles('client/Cargo.lock') }}
-      - name: Build
-        working-directory: client
-        shell: bash
-        run: |
-          rustup update stable --no-self-update
-          cargo test --workspace --locked
-          cargo build --workspace --release --locked
-          mkdir -p ../out
-          cp target/release/rhis-quicksupport.exe ../out/rhis-quicksupport_windows_amd64.exe
-          cargo metadata --format-version 1 --no-deps | jq -r '.packages[] | select(.name=="rhis-quicksupport") | .version' > ../out/rhis-quicksupport.version
-      - uses: actions/upload-artifact@v4
-        with:
-          name: windows-clients
-          path: out/
-          if-no-files-found: error
-
   release:
-    needs: windows
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
-        with:
-          name: windows-clients
-          path: dist/agent
       - uses: actions/setup-go@v5
         with:
           go-version-file: server/go.mod
@@ -90,4 +58,4 @@ jobs:
         run: |
           flags="--target ${GITHUB_SHA} --title ${{ steps.v.outputs.tag }} --generate-notes"
           [ "${{ steps.v.outputs.pre }}" = "true" ] && flags="$flags --prerelease"
-          gh release create "${{ steps.v.outputs.tag }}" dist/rhis-remote_linux_amd64.tar.gz dist/checksums.txt dist/agent/*.exe $flags
+          gh release create "${{ steps.v.outputs.tag }}" dist/rhis-remote_linux_amd64.tar.gz dist/checksums.txt $flags

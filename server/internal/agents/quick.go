@@ -34,14 +34,17 @@ import (
 )
 
 const (
-	// QuickExe is the QuickSupport file name in AgentDir and in release assets.
-	QuickExe = "rhis-quicksupport_windows_amd64.exe"
-	// QuickVersionFile next to QuickExe holds its version (e.g. "0.1.0").
-	QuickVersionFile = "rhis-quicksupport.version"
+	// QuickExe is the QuickSupport file name in AgentDir and in release assets
+	// (the same name the client builder imports).
+	QuickExe = "rhis-quick_windows_amd64.exe"
+	// QuickVersionFile in AgentDir holds the version of the Windows client
+	// workspace (e.g. "0.2.0"), which QuickSupport shares.
+	QuickVersionFile = "client.version"
 	// QuickRetireAfter frees the code of a quick device that has been offline this long.
 	QuickRetireAfter = 3 * time.Minute
-	// quickTrailerMagic ends the config block appended to a downloaded QuickSupport exe.
-	quickTrailerMagic = "RHISQS01"
+	// quickTrailerMagic ends the configuration appended to a downloaded QuickSupport
+	// exe. The layout is the client builder's (docs/client-builder.md).
+	quickTrailerMagic = "RHISCFG1"
 )
 
 var ErrInvalidCode = errors.New("invalid_code")
@@ -322,16 +325,23 @@ func (s *Service) quickFile() *quickFile {
 	return &c
 }
 
-// quickTrailer is the config block appended to a downloaded exe; see
+// quickTrailer is the configuration appended to a downloaded exe of size
+// exeSize, in the client builder layout: [zero padding][JSON][uint32 LE
+// length]["RHISCFG1"], ending on an 8-byte boundary. The client reads it in
 // client/quicksupport/src/config.rs.
-func (s *Service) quickTrailer() []byte {
-	cfg, _ := json.Marshal(map[string]string{
-		"server":       strings.TrimRight(s.Quick.PublicURL, "/"),
+func (s *Service) quickTrailer(exeSize int64) []byte {
+	cfg, _ := json.Marshal(map[string]any{
+		"v":            1,
+		"mode":         "quick",
+		"servers":      []string{strings.TrimRight(s.Quick.PublicURL, "/")},
 		"product_name": s.Quick.ProductName,
 		"company_name": s.Quick.CompanyName,
 	})
 	n := len(cfg)
-	out := append(cfg, byte(n), byte(n>>8), byte(n>>16), byte(n>>24))
+	pad := (8 - (exeSize+int64(n)+12)%8) % 8
+	out := make([]byte, pad, int(pad)+n+12)
+	out = append(out, cfg...)
+	out = append(out, byte(n), byte(n>>8), byte(n>>16), byte(n>>24))
 	return append(out, quickTrailerMagic...)
 }
 
@@ -351,7 +361,7 @@ func (s *Service) handleQuickLatest(w http.ResponseWriter, r *http.Request) {
 	defer f.Close()
 	h := sha256.New()
 	io.Copy(h, f)
-	h.Write(s.quickTrailer())
+	h.Write(s.quickTrailer(qf.Size))
 	writeJSON(w, 200, map[string]any{"version": qf.Version, "url": "/api/agent/v1/quick/download", "sha256": hex.EncodeToString(h.Sum(nil))})
 }
 
@@ -369,7 +379,7 @@ func (s *Service) handleQuickDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer f.Close()
-	trailer := s.quickTrailer()
+	trailer := s.quickTrailer(qf.Size)
 	name := "RHIS-QuickSupport.exe"
 	w.Header().Set("Content-Type", "application/vnd.microsoft.portable-executable")
 	w.Header().Set("Content-Disposition", `attachment; filename="`+name+`"`)

@@ -9,6 +9,7 @@
 use crate::config::Config;
 use crate::i18n::Lang;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
 use std::time::Duration;
 
@@ -66,7 +67,7 @@ struct RegisterReq<'a> {
     language: &'a str,
 }
 
-#[cfg_attr(not(feature = "core"), allow(dead_code))]
+#[allow(dead_code)] // device_id is part of the response; kept for debugging
 #[derive(Deserialize, Debug)]
 pub struct Registration {
     pub device_id: i64,
@@ -111,28 +112,42 @@ fn random_id() -> String {
     hex::encode(b)
 }
 
-pub fn register(cfg: &Config, lang: Lang) -> Result<Registration, String> {
+pub fn register(
+    cfg: &Config,
+    lang: Lang,
+    machine_id: &str,
+) -> Result<(Registration, String), String> {
     let req = RegisterReq {
-        machine_id: random_id(),
+        machine_id: machine_id.to_string(),
         hostname: whoami::hostname().unwrap_or_else(|_| "unknown".into()),
         os_version: os_version(),
         user: whoami::username().unwrap_or_default(),
         client_version: VERSION,
         language: lang.code(),
     };
-    http()
-        .post(format!("{}/api/agent/v1/quick/register", cfg.server))
-        .send_json(&req)
-        .map_err(|e| e.to_string())?
-        .body_mut()
-        .read_json::<Registration>()
-        .map_err(|e| e.to_string())
+    // Try the servers in order; the first that answers is used for the whole run.
+    let mut last = String::new();
+    for server in std::iter::once(&cfg.server).chain(cfg.alternates.iter()) {
+        match http()
+            .post(format!("{server}/api/agent/v1/quick/register"))
+            .send_json(&req)
+            .map_err(|e| e.to_string())
+            .and_then(|mut r| {
+                r.body_mut()
+                    .read_json::<Registration>()
+                    .map_err(|e| e.to_string())
+            }) {
+            Ok(reg) => return Ok((reg, server.clone())),
+            Err(e) => last = format!("{server}: {e}"),
+        }
+    }
+    Err(last)
 }
 
 /// Tells the server the client is closing, so the code stops working at once.
-pub fn close(cfg: &Config, token: &str) {
+pub fn close(server: &str, token: &str) {
     let _ = http()
-        .post(format!("{}/api/agent/v1/quick/close", cfg.server))
+        .post(format!("{server}/api/agent/v1/quick/close"))
         .header("Authorization", format!("Bearer {token}"))
         .send_empty();
 }
@@ -207,24 +222,28 @@ fn os_version() -> String {
 }
 
 /// Runs the worker until the window sends `Shutdown`.
+pub type Emit = Arc<dyn Fn(Event) + Send + Sync>;
+
 pub fn run(
     cfg: Config,
     lang: Lang,
     events: Sender<Event>,
     cmds: Receiver<Cmd>,
-    wake: impl Fn() + Send + 'static,
+    wake: impl Fn() + Send + Sync + 'static,
 ) {
-    let send = |e: Event| {
+    let send: Emit = Arc::new(move |e: Event| {
         let _ = events.send(e);
         wake();
-    };
+    });
     if cfg.demo {
-        return demo(send, cmds);
+        return demo(|e| send(e), cmds);
     }
+    // A fresh identity per run: QuickSupport keeps nothing on the computer.
+    let machine_id = random_id();
     let mut backoff = 1u64;
     loop {
         send(Event::Connecting);
-        let reg = match register(&cfg, lang) {
+        let (reg, server) = match register(&cfg, lang, &machine_id) {
             Ok(r) => r,
             Err(e) => {
                 eprintln!("register: {e}");
@@ -242,11 +261,8 @@ pub fn run(
             }
         };
         backoff = 1;
-        send(Event::Ready {
-            code: reg.device_code.clone(),
-        });
-        let stop = session_loop(&cfg, &reg, &send, &cmds);
-        close(&cfg, &reg.device_token);
+        let stop = session_loop(&cfg, &server, &reg, &machine_id, send.clone(), &cmds);
+        close(&server, &reg.device_token);
         if stop {
             return;
         }
@@ -258,10 +274,15 @@ pub fn run(
 #[cfg(not(feature = "core"))]
 fn session_loop(
     _cfg: &Config,
-    _reg: &Registration,
-    send: &impl Fn(Event),
+    _server: &str,
+    reg: &Registration,
+    _machine_id: &str,
+    send: Emit,
     cmds: &Receiver<Cmd>,
 ) -> bool {
+    send(Event::Ready {
+        code: reg.device_code.clone(),
+    });
     send(Event::Fatal {
         key: "engine_missing",
         detail: String::new(),
@@ -271,6 +292,220 @@ fn session_loop(
             Ok(Cmd::Shutdown) | Err(_) => return true,
             Ok(Cmd::Retry) => return false,
             _ => {}
+        }
+    }
+}
+
+#[cfg(feature = "core")]
+use engine::session_loop;
+
+/// The real connection, through rhis-core: the same control channel and
+/// session sockets as the Windows agent (docs/agent-protocol.md).
+#[cfg(feature = "core")]
+mod engine {
+    use super::*;
+    use rhis_core::control::{self, ControlConfig, ControlHandler, Decision};
+    use rhis_core::net::ServerConfig;
+    use rhis_core::protocol::SessionRequest;
+    use rhis_core::session::{self, SessionConfig};
+    use std::sync::Mutex;
+    use tokio::sync::{Notify, oneshot};
+
+    #[derive(Default)]
+    struct State {
+        /// A request waiting for the customer's answer.
+        pending: Option<(String, oneshot::Sender<bool>)>,
+        /// The running session and the signal that stops it.
+        active: Option<(String, Arc<Notify>)>,
+    }
+
+    struct Handler {
+        send: Emit,
+        state: Arc<Mutex<State>>,
+        token: String,
+        product_name: String,
+    }
+
+    #[async_trait::async_trait]
+    impl ControlHandler for Handler {
+        async fn on_welcome(&self, _device_id: i64, device_code: &str) {
+            // Only now can a technician reach us, so only now show the code as ready.
+            (self.send)(Event::Ready {
+                code: device_code.to_string(),
+            });
+        }
+
+        async fn on_session_request(&self, req: SessionRequest, server: ServerConfig) -> Decision {
+            if req.kind != "quick" {
+                return Decision::Reject("denied".into());
+            }
+            let rx = {
+                let mut st = self.state.lock().unwrap();
+                if st.active.is_some() || st.pending.is_some() {
+                    return Decision::Reject("busy".into());
+                }
+                let (tx, rx) = oneshot::channel();
+                st.pending = Some((req.session_id.clone(), tx));
+                rx
+            };
+            (self.send)(Event::Request {
+                session_id: req.session_id.clone(),
+                technician: req.user_name.clone(),
+                recording: req.recording,
+            });
+            let answer = tokio::time::timeout(Duration::from_secs(ANSWER_SECS + 5), rx).await;
+            {
+                let mut st = self.state.lock().unwrap();
+                if st
+                    .pending
+                    .as_ref()
+                    .is_some_and(|(id, _)| *id == req.session_id)
+                {
+                    st.pending = None;
+                }
+            }
+            match answer {
+                Ok(Ok(true)) => {}
+                // Cancelled by the technician: the window already shows that.
+                Ok(Err(_)) => return Decision::Reject("cancelled".into()),
+                // Declined, or no answer in time.
+                _ => {
+                    (self.send)(Event::Ended { declined: true });
+                    return Decision::Reject("denied".into());
+                }
+            }
+
+            let stop = Arc::new(Notify::new());
+            self.state.lock().unwrap().active = Some((req.session_id.clone(), stop.clone()));
+            (self.send)(Event::Active {
+                technician: req.user_name.clone(),
+                recording: req.recording,
+            });
+            let cfg = SessionConfig {
+                server,
+                token: self.token.clone(),
+                request: req,
+                fps: 30.0,
+                product_name: self.product_name.clone(),
+            };
+            let (send, state) = (self.send.clone(), self.state.clone());
+            tokio::spawn(async move {
+                let platform = Arc::from(rhis_core::platform::default_platform());
+                tokio::select! {
+                    r = session::run(cfg, platform) => match r {
+                        Ok(reason) => eprintln!("session ended: {reason}"),
+                        Err(e) => eprintln!("session failed: {e:#}"),
+                    },
+                    _ = stop.notified() => eprintln!("session ended by the customer"),
+                }
+                state.lock().unwrap().active = None;
+                send(Event::Ended { declined: false });
+            });
+            Decision::Accept
+        }
+
+        async fn on_session_cancel(&self, session_id: &str) {
+            let mut st = self.state.lock().unwrap();
+            if st.pending.as_ref().is_some_and(|(id, _)| id == session_id) {
+                st.pending = None; // dropping the sender wakes the waiting request
+                drop(st);
+                (self.send)(Event::RequestCancelled);
+            } else if let Some((id, stop)) = &st.active
+                && id == session_id
+            {
+                stop.notify_one();
+            }
+        }
+    }
+
+    pub fn session_loop(
+        cfg: &Config,
+        server_url: &str,
+        reg: &Registration,
+        machine_id: &str,
+        send: Emit,
+        cmds: &Receiver<Cmd>,
+    ) -> bool {
+        // The device exists on the server that registered it; that one is used.
+        let server = match ServerConfig::new(server_url, None, cfg.insecure_dev) {
+            Ok(s) => s,
+            Err(e) => {
+                send(Event::Fatal {
+                    key: "not_https",
+                    detail: format!("{e:#}"),
+                });
+                return wait_for_shutdown(cmds);
+            }
+        };
+        let rt = match tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+        {
+            Ok(rt) => rt,
+            Err(e) => {
+                send(Event::Fatal {
+                    key: "error",
+                    detail: e.to_string(),
+                });
+                return wait_for_shutdown(cmds);
+            }
+        };
+        let state = Arc::new(Mutex::new(State::default()));
+        let handler = Arc::new(Handler {
+            send: send.clone(),
+            state: state.clone(),
+            token: reg.device_token.clone(),
+            product_name: cfg.product_name.clone(),
+        });
+        let ccfg = ControlConfig {
+            server,
+            alternates: vec![],
+            token: reg.device_token.clone(),
+            machine_id: machine_id.to_string(),
+            hostname: whoami::hostname().unwrap_or_else(|_| "unknown".into()),
+            os_version: os_version(),
+            agent_version: VERSION.to_string(),
+        };
+        let control = rt.spawn(control::run(ccfg, handler));
+        let stop_active = || {
+            if let Some((_, stop)) = &state.lock().unwrap().active {
+                stop.notify_one();
+            }
+        };
+        let shutdown = loop {
+            match cmds.recv_timeout(Duration::from_millis(500)) {
+                Ok(Cmd::Answer { session_id, allow }) => {
+                    let mut st = state.lock().unwrap();
+                    if st.pending.as_ref().is_some_and(|(id, _)| *id == session_id)
+                        && let Some((_, tx)) = st.pending.take()
+                    {
+                        let _ = tx.send(allow);
+                    }
+                }
+                Ok(Cmd::EndSession) => stop_active(),
+                Ok(Cmd::Retry) => {}
+                Ok(Cmd::Shutdown) | Err(RecvTimeoutError::Disconnected) => break true,
+                // control::run only returns when the server no longer knows our token
+                // (for example after a long time offline): register again for a new code.
+                Err(RecvTimeoutError::Timeout) if control.is_finished() => break false,
+                Err(RecvTimeoutError::Timeout) => {}
+            }
+        };
+        stop_active();
+        // Give a running session a moment to say goodbye on its socket.
+        std::thread::sleep(Duration::from_millis(300));
+        rt.shutdown_timeout(Duration::from_secs(2));
+        shutdown
+    }
+
+    fn wait_for_shutdown(cmds: &Receiver<Cmd>) -> bool {
+        loop {
+            match cmds.recv() {
+                Ok(Cmd::Shutdown) | Err(_) => return true,
+                Ok(Cmd::Retry) => return false,
+                _ => {}
+            }
         }
     }
 }

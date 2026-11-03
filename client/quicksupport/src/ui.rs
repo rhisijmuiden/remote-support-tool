@@ -14,6 +14,21 @@ use std::time::{Duration, Instant};
 
 const NACHT: Color32 = Color32::from_rgb(0x14, 0x21, 0x3D);
 const KORAAL: Color32 = Color32::from_rgb(0xFF, 0x6B, 0x57);
+
+/// The accent color: koraal, or the one a client build sets.
+static ACCENT: std::sync::OnceLock<Color32> = std::sync::OnceLock::new();
+
+fn accent() -> Color32 {
+    ACCENT.get().copied().unwrap_or(KORAAL)
+}
+
+/// Text on the accent color: nacht on light accents (koraal included, per the
+/// house style), white on dark ones.
+fn on_accent() -> Color32 {
+    let c = accent();
+    let lum = 0.2126 * c.r() as f32 + 0.7152 * c.g() as f32 + 0.0722 * c.b() as f32;
+    if lum > 120.0 { NACHT } else { Color32::WHITE }
+}
 const LUCHT: Color32 = Color32::from_rgb(0x9C, 0xC3, 0xFF);
 
 /// Colors from branding/tokens/tokens.css, light and dark.
@@ -160,6 +175,18 @@ fn semibold(size: f32) -> FontId {
     FontId::new(size, FontFamily::Name("semibold".into()))
 }
 
+fn try_load_png(ctx: &egui::Context, name: &str, bytes: &[u8]) -> Option<TextureHandle> {
+    let img = image::load_from_memory_with_format(bytes, image::ImageFormat::Png)
+        .ok()?
+        .to_rgba8();
+    let size = [img.width() as usize, img.height() as usize];
+    Some(ctx.load_texture(
+        name,
+        egui::ColorImage::from_rgba_unmultiplied(size, img.as_raw()),
+        Default::default(),
+    ))
+}
+
 fn load_png(ctx: &egui::Context, name: &str, bytes: &[u8]) -> TextureHandle {
     let img = image::load_from_memory_with_format(bytes, image::ImageFormat::Png)
         .expect("bundled png")
@@ -187,11 +214,21 @@ impl App {
             Ok("dark") => cc.egui_ctx.set_theme(egui::ThemePreference::Dark),
             _ => {}
         }
-        let logo = load_png(
-            &cc.egui_ctx,
-            "logo",
-            include_bytes!("../assets/rhis-logo-wit-600.png"),
-        );
+        if let Some([r, g, b]) = cfg.accent {
+            let _ = ACCENT.set(Color32::from_rgb(r, g, b));
+        }
+        // A client build can bring its own logo; otherwise the RHIS logo.
+        let logo = cfg
+            .logo_png
+            .as_deref()
+            .and_then(|png| try_load_png(&cc.egui_ctx, "logo", png))
+            .unwrap_or_else(|| {
+                load_png(
+                    &cc.egui_ctx,
+                    "logo",
+                    include_bytes!("../assets/rhis-logo-wit-600.png"),
+                )
+            });
         App {
             cfg,
             lang,
@@ -273,8 +310,8 @@ impl App {
 
 fn primary(ui: &mut egui::Ui, text: &str, width: f32) -> egui::Response {
     ui.add(
-        egui::Button::new(RichText::new(text).font(semibold(16.0)).color(NACHT))
-            .fill(KORAAL)
+        egui::Button::new(RichText::new(text).font(semibold(16.0)).color(on_accent()))
+            .fill(accent())
             .stroke(Stroke::NONE)
             .corner_radius(CornerRadius::same(10))
             .min_size(Vec2::new(width, 44.0)),
@@ -359,7 +396,7 @@ impl eframe::App for App {
             )
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    ui.add(egui::Image::new(&self.logo).fit_to_exact_size(Vec2::new(90.0, 32.0)));
+                    ui.add(egui::Image::new(&self.logo).fit_to_exact_size(Vec2::new(160.0, 32.0)));
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         ui.label(
                             RichText::new(t(lang, "title"))
@@ -450,7 +487,7 @@ impl App {
             Screen::Connecting => {
                 ui.add_space(80.0);
                 ui.vertical_centered(|ui| {
-                    ui.add(egui::Spinner::new().size(36.0).color(KORAAL));
+                    ui.add(egui::Spinner::new().size(36.0).color(accent()));
                     ui.add_space(16.0);
                     ui.label(RichText::new(t(lang, "connecting")).color(p.ink).size(16.0));
                     ui.label(RichText::new(&self.cfg.server).color(p.muted).size(12.0));
@@ -484,7 +521,7 @@ impl App {
                 let left = ANSWER_SECS.saturating_sub(since.elapsed().as_secs());
                 Frame::new()
                     .fill(p.raised)
-                    .stroke(Stroke::new(2.0, KORAAL))
+                    .stroke(Stroke::new(2.0, accent()))
                     .corner_radius(CornerRadius::same(16))
                     .inner_margin(Margin::same(22))
                     .show(ui, |ui| {
@@ -533,7 +570,7 @@ impl App {
             } => {
                 let (technician, recording) = (technician.clone(), *recording);
                 Frame::new()
-                    .fill(KORAAL)
+                    .fill(accent())
                     .corner_radius(CornerRadius::same(16))
                     .inner_margin(Margin::same(22))
                     .show(ui, |ui| {
@@ -541,12 +578,12 @@ impl App {
                         ui.label(
                             RichText::new(t(lang, "active_title"))
                                 .font(display(20.0))
-                                .color(NACHT),
+                                .color(on_accent()),
                         );
                         ui.add_space(6.0);
                         ui.label(
                             RichText::new(tf(lang, "active_body", &[&technician]))
-                                .color(NACHT)
+                                .color(on_accent())
                                 .size(16.0),
                         );
                         if recording {
@@ -558,7 +595,7 @@ impl App {
                                 .show(ui, |ui| {
                                     status_dot(
                                         ui,
-                                        KORAAL,
+                                        accent(),
                                         t(lang, "recording"),
                                         Palette {
                                             ink: Color32::WHITE,
@@ -743,13 +780,13 @@ impl App {
                     UpdateState::Idle => {}
                     UpdateState::Checking => {
                         ui.horizontal(|ui| {
-                            ui.add(egui::Spinner::new().color(KORAAL));
+                            ui.add(egui::Spinner::new().color(accent()));
                             ui.label(RichText::new(t(lang, "checking")).color(p.ink));
                         });
                     }
                     UpdateState::Downloading => {
                         ui.horizontal(|ui| {
-                            ui.add(egui::Spinner::new().color(KORAAL));
+                            ui.add(egui::Spinner::new().color(accent()));
                             ui.label(RichText::new(t(lang, "downloading")).color(p.ink));
                         });
                     }
