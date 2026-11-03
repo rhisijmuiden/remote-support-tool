@@ -2,7 +2,9 @@
 
 Self-hosted remote support for Windows: remote control with unattended access, a one-off quick support client, and a modular server that runs on a single Debian 13 machine and scales out to multiple servers.
 
-> Status: early development. This version has the server foundation and the admin portal. The Windows agent, quick support client and client builder come next. See the [sketches](https://claude.ai/artifact/EGUbiA7E5estczA15PKzjA) for the planned architecture and screens.
+> **Status:** early development. Version 0.1 contains the server foundation and the admin portal. The Windows agent, quick support client and client builder come next, see the [roadmap](ROADMAP.md).
+
+![Dashboard](docs/screenshots/dashboard.png)
 
 ## What is in the server today
 
@@ -12,6 +14,31 @@ Self-hosted remote support for Windows: remote control with unattended access, a
 - **Backup and restore:** full and incremental backups of the database and data folder to FTP, FTPS (explicit or implicit) or SCP over SSH, on a schedule or by hand, optionally encrypted with [age](https://age-encryption.org). Retention keeps the newest N full backups. Restore works from the remote location, also on a fresh server.
 - **Info and updates:** the Info button shows the version and checks GitHub releases. Switch between the production and test channel and install an update from the portal.
 - **One binary, several roles:** `roles: ["all"]` on one machine; later roles (gateway, relay) can run on separate servers.
+
+## Screenshots
+
+All screenshots are taken from a real `v0.1.0-test.1` server. The backups shown were made to an FTPS server.
+
+| | |
+| --- | --- |
+| ![Sign in](docs/screenshots/login.png) **Sign in** | ![Dark theme in Dutch](docs/screenshots/dashboard-dark-nl.png) **Dark theme, Dutch** |
+| ![Users and roles](docs/screenshots/users.png) **Users and roles** | ![Mail server](docs/screenshots/mail.png) **Mail server (SMTP)** |
+| ![Backup and restore](docs/screenshots/backup.png) **Backup history and restore** | ![Info and updates](docs/screenshots/info-updates.png) **Info, update channel and updates** |
+| ![Activity log](docs/screenshots/audit.png) **Activity log** | |
+
+## Roadmap
+
+| Phase | Status |
+| --- | --- |
+| 1. Server foundation | Done (v0.1) |
+| 2. Windows agent and connectivity (NAT traversal, WebRTC, relay) | Next |
+| 3. Quick support client (no install, session code) | Planned |
+| 4. Session audit and recording | Planned |
+| 5. Client builder and signed central updates | Planned |
+| 6. Multi-server and scale-out | Planned |
+| 7. Code signing and open-source release | Planned |
+
+Details per phase are in [ROADMAP.md](ROADMAP.md) and in the [roadmap issues](https://github.com/rhisijmuiden/remote-support-tool/issues?q=label%3Aroadmap).
 
 ## Install on Debian 13
 
@@ -53,6 +80,7 @@ RHIS_TEST_DATABASE_URL=postgres://localhost/rhis_test?sslmode=disable make test
 | `web/` | React + TypeScript portal (Vite, i18next) |
 | `deploy/debian/` | Installer, systemd unit, example config |
 | `branding/` | RHIS house style: logos, colors, fonts |
+| `docs/screenshots/` | Portal screenshots used in this README |
 
 ## Branding
 
