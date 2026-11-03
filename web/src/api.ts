@@ -64,3 +64,50 @@ export type UpdateStatus = {
   checked_at: string;
   check_error?: string;
 };
+
+export type RecordingStatus = "none" | "recording" | "complete" | "incomplete" | "deleted";
+export type RemoteSession = {
+  id: number;
+  device_id: number | null;
+  device_name: string | null;
+  customer_id: number | null;
+  customer_name: string | null;
+  user_id: number | null;
+  user_email: string | null;
+  user_name: string | null;
+  kind: "unattended" | "attended" | "quick";
+  transport: string | null;
+  viewer_ip: string | null;
+  started_at: string;
+  ended_at: string | null;
+  end_reason: string | null;
+  recording: RecordingStatus;
+  recording_chunks: number;
+  recording_bytes: number;
+  recording_mime: string | null;
+};
+export type SessionEvent = { id: number; at: string; kind: string; details: Record<string, unknown> | null };
+export type Share = {
+  id: number;
+  session_id: number;
+  created_by: string | null;
+  note: string | null;
+  created_at: string;
+  expires_at: string;
+  revoked_at: string | null;
+  views: number;
+  last_viewed_at: string | null;
+};
+export type RecordingPolicy = { mode: "off" | "optional" | "always"; retention_days: number; share_days: number };
+
+export function hasRecording(s: RemoteSession) {
+  return s.recording_chunks > 0 && (s.recording === "complete" || s.recording === "incomplete" || s.recording === "recording");
+}
+
+export function duration(s: { started_at: string; ended_at: string | null }, now = Date.now()) {
+  const sec = Math.max(0, Math.round(((s.ended_at ? Date.parse(s.ended_at) : now) - Date.parse(s.started_at)) / 1000));
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const ss = sec % 60;
+  return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${String(ss).padStart(2, "0")}` : `${m}:${String(ss).padStart(2, "0")}`;
+}

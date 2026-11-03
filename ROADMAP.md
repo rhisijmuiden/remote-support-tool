@@ -9,7 +9,7 @@ Every phase has a tracking issue labelled `roadmap` on GitHub. Detailed tasks ar
 | 1. Server foundation | Done | v0.1 | #4 |
 | 2. Windows agent and connectivity | Next | v0.2 | #5 |
 | 3. Quick support client | Planned | v0.3 | #6 |
-| 4. Session audit and recording | Planned | v0.4 | #7 |
+| 4. Session audit and recording | In progress | v0.4 | #7 |
 | 5. Client builder and central updates | Planned | v0.5 | #8 |
 | 6. Multi-server and scale-out | Planned | v0.6 | #9 |
 | 7. Code signing and open-source release | Planned | v1.0 | #10 |
@@ -49,12 +49,20 @@ A one-off client for ad-hoc support, without installation.
 - [ ] The user approves the session and can end it at any time; nothing stays behind after closing
 - [ ] Optional upgrade from a quick session to a permanent unattended install
 
-## 4. Session audit and recording
+## 4. Session audit and recording (in progress)
 
-- [ ] Session log: who connected to which device, when, how long and from where
-- [ ] Optional video recording per customer or per device, stored in the data folder and included in backups
-- [ ] Playback in the portal, retention settings and export
-- [ ] Notification on the client side that a session is being recorded
+Server and portal side are done; recording starts working end to end once the browser viewer from phase 2 calls the recorder. Details in [docs/session-recording.md](docs/session-recording.md).
+
+- [x] Session log: who connected to which device, when, how long and from where, with a timeline per session (connection type, file transfers, elevation, views and shares)
+- [x] Filter by device, customer, date, technician; technicians see only their own sessions; CSV export
+- [x] Recording policy: off, technician chooses, or always
+- [x] Recording in the technician's browser (MediaRecorder, WebM), uploaded in chunks while the session runs, so the agent does no video encoding
+- [x] Recordings stored encrypted (AES-256-GCM per chunk) in the data folder, included in backups
+- [x] Playback with seeking, download, delete, automatic retention
+- [x] Private share links for customers: expiring, revocable, every view logged
+- [ ] Hook the recorder into the browser viewer (phase 2)
+- [ ] "This session is being recorded" banner on the Windows side (phase 2 agent)
+- [ ] Per-customer or per-device recording policy override
 
 ## 5. Client builder and central updates
 

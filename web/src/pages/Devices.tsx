@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { api } from "../api";
 import { Empty, Notice, PageHead, errorText, formatDate, useLoad } from "../components/ui";
@@ -50,6 +51,7 @@ export function Devices() {
                   <th>{t("devices.agent")}</th>
                   <th>{t("devices.last_seen")}</th>
                   <th>{t("devices.status")}</th>
+                  <th />
                 </tr>
               </thead>
               <tbody>
@@ -66,6 +68,9 @@ export function Devices() {
                     <td>{d.online ? "-" : formatDate(d.last_seen_at, i18n.language) || t("common.never")}</td>
                     <td>
                       <span className={"pill " + (d.online ? "ok" : "off")}>{t(d.online ? "status.online" : "status.offline")}</span>
+                    </td>
+                    <td>
+                      <Link to={`/sessions?device=${d.id}`}>{t("devices.sessions")}</Link>
                     </td>
                   </tr>
                 ))}

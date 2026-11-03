@@ -21,6 +21,7 @@ import (
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/backup"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/config"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/mail"
+	"github.com/rhisijmuiden/remote-support-tool/server/internal/sessions"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/update"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/version"
 )
@@ -34,6 +35,7 @@ type API struct {
 	Backup    *backup.Service
 	Scheduler *backup.Scheduler
 	Update    *update.Service
+	Sessions  *sessions.Service
 	// Restart is called after an update has been installed.
 	Restart func()
 
@@ -55,6 +57,8 @@ func (a *API) Routes() http.Handler {
 	r.Post("/setup", a.setup)
 	r.Post("/login", a.login)
 	r.Post("/logout", a.logout)
+	r.Get("/public/recordings/{token}", a.publicRecording)
+	r.Get("/public/recordings/{token}/video", a.publicVideo)
 	r.Group(func(r chi.Router) {
 		r.Use(a.requireUser)
 		r.Get("/me", a.me)
@@ -64,6 +68,14 @@ func (a *API) Routes() http.Handler {
 		r.Get("/devices", a.devices)
 		r.Get("/customers", a.customers)
 		r.Get("/system/info", a.systemInfo)
+		r.Get("/sessions", a.listSessions)
+		r.Get("/sessions/export.csv", a.exportSessions)
+		r.Get("/sessions/{id}", a.getSession)
+		r.Get("/sessions/{id}/recording", a.getRecording)
+		r.Put("/sessions/{id}/recording/{seq}", a.putChunk)
+		r.Post("/sessions/{id}/recording/finish", a.finishRecording)
+		r.Post("/sessions/{id}/shares", a.createShare)
+		r.Delete("/sessions/{id}/shares/{share}", a.revokeShare)
 		r.Group(func(r chi.Router) {
 			r.Use(requireAdmin)
 			r.Get("/users", a.listUsers)
@@ -86,6 +98,9 @@ func (a *API) Routes() http.Handler {
 			r.Put("/system/channel", a.setChannel)
 			r.Post("/system/update", a.applyUpdate)
 			r.Get("/audit", a.auditLog)
+			r.Get("/settings/recording", a.getRecordingPolicy)
+			r.Put("/settings/recording", a.putRecordingPolicy)
+			r.Delete("/sessions/{id}/recording", a.deleteRecording)
 		})
 	})
 	return r
