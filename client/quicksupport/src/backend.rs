@@ -23,6 +23,8 @@ pub const ANSWER_SECS: u64 = 60;
 #[derive(Debug, Clone)]
 pub enum Event {
     Connecting,
+    /// Registered with a server; the window uses this for update checks.
+    Registered(crate::update::UpdateCtx),
     Ready {
         code: String,
     },
@@ -67,19 +69,13 @@ struct RegisterReq<'a> {
     language: &'a str,
 }
 
-#[allow(dead_code)] // device_id is part of the response; kept for debugging
 #[derive(Deserialize, Debug)]
 pub struct Registration {
     pub device_id: i64,
+    #[cfg_attr(feature = "core", allow(dead_code))]
+    // the code arrives again in the welcome message
     pub device_code: String,
     pub device_token: String,
-}
-
-#[derive(Deserialize, Debug, Clone)]
-pub struct Latest {
-    pub version: String,
-    pub url: String,
-    pub sha256: String,
 }
 
 /// Formats "123456789" as "123 456 789".
@@ -152,16 +148,6 @@ pub fn close(server: &str, token: &str) {
         .send_empty();
 }
 
-pub fn check_latest(cfg: &Config) -> Result<Latest, String> {
-    http()
-        .get(format!("{}/api/agent/v1/quick/latest", cfg.server))
-        .call()
-        .map_err(|e| e.to_string())?
-        .body_mut()
-        .read_json::<Latest>()
-        .map_err(|e| e.to_string())
-}
-
 /// Compares dotted versions ("0.2.0" > "0.1.9"); a pre-release suffix sorts lower.
 pub fn is_newer(candidate: &str, current: &str) -> bool {
     fn parts(v: &str) -> (Vec<u64>, bool) {
@@ -179,42 +165,6 @@ pub fn is_newer(candidate: &str, current: &str) -> bool {
         std::cmp::Ordering::Less => false,
         std::cmp::Ordering::Equal => bpre && !apre,
     }
-}
-
-/// Downloads the new exe to the temp folder, checks its SHA-256, starts it and
-/// returns, after which the caller exits. The new copy registers a new code.
-pub fn download_and_start(cfg: &Config, latest: &Latest) -> Result<(), String> {
-    use sha2::{Digest, Sha256};
-    use std::io::Read;
-    let url = if latest.url.starts_with('/') {
-        format!("{}{}", cfg.server, latest.url)
-    } else {
-        latest.url.clone()
-    };
-    crate::config::validate_server(&url, cfg.insecure_dev).map_err(|e| format!("{e:?}"))?;
-    let mut body = Vec::new();
-    http()
-        .get(&url)
-        .call()
-        .map_err(|e| e.to_string())?
-        .body_mut()
-        .as_reader()
-        .take(200 * 1024 * 1024)
-        .read_to_end(&mut body)
-        .map_err(|e| e.to_string())?;
-    let sum = hex::encode(Sha256::digest(&body));
-    if !sum.eq_ignore_ascii_case(latest.sha256.trim()) {
-        return Err("checksum mismatch".into());
-    }
-    let path = std::env::temp_dir().join(format!(
-        "rhis-quicksupport-{}.exe",
-        latest.version.trim_start_matches('v')
-    ));
-    std::fs::write(&path, &body).map_err(|e| e.to_string())?;
-    std::process::Command::new(&path)
-        .spawn()
-        .map_err(|e| e.to_string())?;
-    Ok(())
 }
 
 fn os_version() -> String {
@@ -261,6 +211,11 @@ pub fn run(
             }
         };
         backoff = 1;
+        send(Event::Registered(crate::update::UpdateCtx {
+            server: server.clone(),
+            token: reg.device_token.clone(),
+            device_id: reg.device_id,
+        }));
         let stop = session_loop(&cfg, &server, &reg, &machine_id, send.clone(), &cmds);
         close(&server, &reg.device_token);
         if stop {

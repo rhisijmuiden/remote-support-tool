@@ -33,6 +33,10 @@ pub struct FileConfig {
     pub logo_png: String,
     /// "#RRGGBB"
     pub accent_color: String,
+    /// "production" or "test".
+    pub channel: String,
+    /// Base64 Ed25519 public keys that sign update manifests.
+    pub update_keys: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -42,6 +46,9 @@ pub struct Config {
     pub alternates: Vec<String>,
     pub logo_png: Option<Vec<u8>>,
     pub accent: Option<[u8; 3]>,
+    pub channel: String,
+    /// When set, updates must come as a manifest signed by one of these keys.
+    pub update_keys: Vec<[u8; 32]>,
     pub product_name: String,
     pub company_name: String,
     pub insecure_dev: bool,
@@ -111,12 +118,30 @@ impl Config {
             .ok()
             .filter(|b| b.starts_with(b"\x89PNG\r\n\x1a\n") && b.len() <= 256 * 1024);
         let accent = parse_color(&file.accent_color);
+        let update_keys = file
+            .update_keys
+            .iter()
+            .filter_map(|k| {
+                base64::engine::general_purpose::STANDARD
+                    .decode(k.trim())
+                    .ok()
+            })
+            .filter_map(|k| <[u8; 32]>::try_from(k).ok())
+            .collect();
+        let channel = if file.channel == "test" {
+            "test"
+        } else {
+            "production"
+        }
+        .to_string();
 
         let cfg = Config {
             server,
             alternates: servers,
             logo_png,
             accent,
+            channel,
+            update_keys,
             product_name: non_empty(file.product_name, "RHIS Remote"),
             company_name: non_empty(file.company_name, "RHIS"),
             insecure_dev,
@@ -186,7 +211,20 @@ fn read_trailer(exe: &Path) -> Option<FileConfig> {
 /// Finds the trailer before the Authenticode certificate table (or at the end
 /// of an unsigned file). Mirrors builder.Extract on the server.
 pub fn parse_trailer(data: &[u8]) -> Option<FileConfig> {
-    let end = security_dir_offset(data).unwrap_or(data.len());
+    let raw = trailer_bytes(data)?;
+    serde_json::from_slice(&raw[..raw.len() - 12]).ok()
+}
+
+/// The raw trailer (JSON, length and magic), looked for before the certificate
+/// table first and then at the very end (a signed file with a trailer added later).
+pub fn trailer_bytes(data: &[u8]) -> Option<&[u8]> {
+    [security_dir_offset(data), Some(data.len())]
+        .into_iter()
+        .flatten()
+        .find_map(|end| trailer_ending_at(data, end))
+}
+
+fn trailer_ending_at(data: &[u8], end: usize) -> Option<&[u8]> {
     if end < 12 || end > data.len() || &data[end - 8..end] != TRAILER_MAGIC {
         return None;
     }
@@ -194,7 +232,7 @@ pub fn parse_trailer(data: &[u8]) -> Option<FileConfig> {
     if len == 0 || len > 1024 * 1024 || len > end - 12 {
         return None;
     }
-    serde_json::from_slice(&data[end - 12 - len..end - 12]).ok()
+    Some(&data[end - 12 - len..end])
 }
 
 /// File offset of the PE certificate table (data directory 4), if the file is signed.

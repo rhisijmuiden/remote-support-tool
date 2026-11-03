@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //! The QuickSupport window, in the RHIS house style.
 
-use crate::backend::{self, ANSWER_SECS, Cmd, Event, Latest, VERSION};
+use crate::backend::{self, ANSWER_SECS, Cmd, Event, VERSION};
 use crate::config::Config;
 use crate::i18n::{Lang, t, tf};
+use crate::update::{self, Offer, UpdateCtx};
 use egui::{
     Align, Color32, CornerRadius, FontData, FontDefinitions, FontFamily, FontId, Frame, Layout,
     Margin, RichText, Stroke, TextureHandle, Theme, Vec2, ViewportCommand, WindowLevel,
@@ -104,7 +105,7 @@ enum UpdateState {
     Idle,
     Checking,
     UpToDate,
-    Available(Latest),
+    Available(Offer),
     Downloading,
     Failed(String),
 }
@@ -120,6 +121,7 @@ pub struct App {
     copied: Option<Instant>,
     logo: TextureHandle,
     info_open: bool,
+    update_ctx: Option<UpdateCtx>,
     update: Arc<Mutex<UpdateState>>,
     on_top: bool,
 }
@@ -240,6 +242,7 @@ impl App {
             copied: None,
             logo,
             info_open: false,
+            update_ctx: None,
             update: Default::default(),
             on_top: false,
         }
@@ -248,6 +251,7 @@ impl App {
     fn handle(&mut self, ctx: &egui::Context, e: Event) {
         match e {
             Event::Connecting => self.screen = Screen::Connecting,
+            Event::Registered(c) => self.update_ctx = Some(c),
             Event::Offline { retry_in } => self.screen = Screen::Offline { retry_in },
             Event::Ready { code } => {
                 self.code = Some(code);
@@ -813,7 +817,7 @@ impl App {
                                 ctx.clone(),
                             );
                             std::thread::spawn(move || {
-                                let r = backend::download_and_start(&cfg, &l);
+                                let r = update::download_and_start(&cfg, &l);
                                 match r {
                                     Ok(()) => ctx2.send_viewport_cmd(ViewportCommand::Close),
                                     Err(e) => *slot.lock().unwrap() = UpdateState::Failed(e),
@@ -829,18 +833,20 @@ impl App {
                 ui.horizontal(|ui| {
                     if !busy && secondary(ui, p, t(lang, "check_updates"), 190.0).clicked() {
                         *self.update.lock().unwrap() = UpdateState::Checking;
-                        let (cfg, slot, ctx2) =
-                            (self.cfg.clone(), self.update.clone(), ctx.clone());
+                        let (cfg, slot, ctx2, uctx) = (
+                            self.cfg.clone(),
+                            self.update.clone(),
+                            ctx.clone(),
+                            self.update_ctx.clone(),
+                        );
                         std::thread::spawn(move || {
                             let s = if cfg.demo {
                                 std::thread::sleep(Duration::from_millis(600));
                                 UpdateState::UpToDate
                             } else {
-                                match backend::check_latest(&cfg) {
-                                    Ok(l) if backend::is_newer(&l.version, VERSION) => {
-                                        UpdateState::Available(l)
-                                    }
-                                    Ok(_) => UpdateState::UpToDate,
+                                match update::check(&cfg, uctx.as_ref()) {
+                                    Ok(Some(offer)) => UpdateState::Available(offer),
+                                    Ok(None) => UpdateState::UpToDate,
                                     Err(e) => UpdateState::Failed(e),
                                 }
                             };

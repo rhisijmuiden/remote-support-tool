@@ -44,7 +44,10 @@ The server serves the exe from `gateway.agent_dir` (default `/opt/rhis-remote/ag
 
 ## Info and updates
 
-The **Info** button shows the version, the server and the license, and checks `GET /api/agent/v1/quick/latest`. When the server has a newer QuickSupport, **Download and restart** downloads it, checks its SHA-256, starts the new copy and closes the old one (which gets a new code). The release channel follows the server.
+The **Info** button shows the version, the server and the license, and checks for a newer QuickSupport. **Download and restart** downloads it, checks it, starts the new copy (which keeps this copy's servers and branding) and closes the old one, which gets a new code. The release channel follows the server.
+
+- A build from the client builder carries `update_keys`. It then only accepts a manifest from `GET /api/agent/v1/update?product=quick` that is signed with one of those Ed25519 keys, issued for this device and not expired, and checks the file's size and SHA-256 (the same rules as the agent, see client-builder.md).
+- The plain download from the Quick support page has no keys. It asks `GET /api/agent/v1/quick/latest` and checks the SHA-256 the server names, over HTTPS.
 
 ## Development
 

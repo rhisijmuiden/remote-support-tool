@@ -7,6 +7,7 @@ mod backend;
 mod config;
 mod i18n;
 mod ui;
+mod update;
 
 use config::{Config, ConfigError};
 use i18n::Lang;
@@ -56,6 +57,8 @@ fn main() -> eframe::Result {
                 alternates: vec![],
                 logo_png: None,
                 accent: None,
+                channel: "production".into(),
+                update_keys: vec![],
                 product_name: "RHIS Remote".into(),
                 company_name: "RHIS".into(),
                 insecure_dev: false,
