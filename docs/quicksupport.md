@@ -12,7 +12,7 @@ The technician enters the code in the portal under **Quick support**, where the 
 
 ## How a session goes
 
-1. The customer opens the download link (`https://<server>/api/agent/v1/quick/download`). The server appends its own address to the exe, so the customer only has to start it.
+1. The customer opens the download link (`https://<server>/api/agent/v1/quick/download`). The server writes its address, branding, release channel and public update keys into the exe (the client builder layout), so the customer only has to start it.
 2. QuickSupport registers with the server over HTTPS and gets a device code and a device token. It shows the code.
 3. QuickSupport opens the same control channel (WSS) as the Windows agent, see [agent-protocol.md](agent-protocol.md).
 4. The technician enters the code in the portal. The server sends a `session_request` with kind `quick` and the technician's name.
@@ -26,7 +26,7 @@ The technician enters the code in the portal under **Quick support**, where the 
 - **Consent first.** A code alone never gives access: the customer must click Allow for every session.
 - **Guessing codes does not work.** Codes have 9 digits (900 million options) and only exist while a QuickSupport window is open. A technician gets 20 wrong codes per 15 minutes; unknown and offline codes give the same answer. Registrations are limited to 30 per IP address per 15 minutes.
 - **Separate from managed devices.** Quick devices have kind `quick`: they are not listed under Devices, not counted on the dashboard, and an agent's code cannot be used on the Quick support page.
-- **No secrets in the download.** The appended block holds only the server addresses, branding and public update keys.
+- **No secrets in the download.** The embedded configuration holds only the server addresses, branding, release channel and public update keys.
 - Every step is in the activity log: `quick.registered`, `session.started`, `quick.code_not_found`, `quick.closed`.
 
 ## Configuration
@@ -40,14 +40,14 @@ QuickSupport looks for its server in this order:
 
 The server serves the exe from `gateway.agent_dir` (default `/opt/rhis-remote/agent`): `rhis-quick_windows_amd64.exe` plus `client.version` (the version of the Windows client workspace). Releases include both and the installer puts them there.
 
-**Code signing:** the trailer sits before the Authenticode certificate table, so the client builder can sign a build after adding it. The plain download link appends it to the released exe as is.
+**Code signing:** the client builder puts the configuration before the Authenticode certificate table and signs the build afterwards. The download link does not re-sign: for an unsigned exe it uses the same layout (`builder.Embed`); for a signed release it appends the configuration after the certificate table, so the signature stays valid (Windows accepts this unless the optional `EnableCertPaddingCheck` policy is on). For customers whose Windows enforces that policy, make a QuickSupport build in the client builder.
 
 ## Info and updates
 
 The **Info** button shows the version, the server and the license, and checks for a newer QuickSupport. **Download and restart** downloads it, checks it, starts the new copy (which keeps this copy's servers and branding) and closes the old one, which gets a new code. The release channel follows the server.
 
-- A build from the client builder carries `update_keys`. It then only accepts a manifest from `GET /api/agent/v1/update?product=quick` that is signed with one of those Ed25519 keys, issued for this device and not expired, and checks the file's size and SHA-256 (the same rules as the agent, see client-builder.md).
-- The plain download from the Quick support page has no keys. It asks `GET /api/agent/v1/quick/latest` and checks the SHA-256 the server names, over HTTPS.
+- Builds from the client builder and downloads from the Quick support page carry `update_keys`. QuickSupport then only accepts a manifest from `GET /api/agent/v1/update?product=quick` that is signed with one of those Ed25519 keys, issued for this device and not expired, and checks the file's size and SHA-256 (the same rules as the agent, see client-builder.md). New QuickSupport versions come from the server's client releases (Settings → Agent updates), like the agent.
+- A copy without keys (for example started with `--server`) asks `GET /api/agent/v1/quick/latest` and checks the SHA-256 the server names, over HTTPS.
 
 ## Development
 

@@ -13,6 +13,7 @@ package agents
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -31,6 +32,7 @@ import (
 
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/audit"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/auth"
+	"github.com/rhisijmuiden/remote-support-tool/server/internal/builder"
 )
 
 const (
@@ -42,9 +44,6 @@ const (
 	QuickVersionFile = "client.version"
 	// QuickRetireAfter frees the code of a quick device that has been offline this long.
 	QuickRetireAfter = 3 * time.Minute
-	// quickTrailerMagic ends the configuration appended to a downloaded QuickSupport
-	// exe. The layout is the client builder's (docs/client-builder.md).
-	quickTrailerMagic = "RHISCFG1"
 )
 
 var ErrInvalidCode = errors.New("invalid_code")
@@ -54,6 +53,11 @@ type QuickOptions struct {
 	PublicURL   string // https://remote.example.com
 	ProductName string
 	CompanyName string
+	// UpdateKeys are the public update keys (base64 Ed25519) the client trusts
+	// for signed updates; without them a download cannot be built.
+	UpdateKeys func() []string
+	// Channel returns the server's release channel ("production" or "test").
+	Channel func(ctx context.Context) string
 }
 
 // QuickRegisterRequest is sent by the QuickSupport client when it starts.
@@ -325,72 +329,132 @@ func (s *Service) quickFile() *quickFile {
 	return &c
 }
 
-// quickTrailer is the configuration appended to a downloaded exe of size
-// exeSize, in the client builder layout: [zero padding][JSON][uint32 LE
-// length]["RHISCFG1"], ending on an 8-byte boundary. The client reads it in
+// quickConfig is the configuration written into a downloaded exe, in the
+// client builder layout (docs/client-builder.md). The client reads it in
 // client/quicksupport/src/config.rs.
-func (s *Service) quickTrailer(exeSize int64) []byte {
-	cfg, _ := json.Marshal(map[string]any{
-		"v":            1,
-		"mode":         "quick",
-		"servers":      []string{strings.TrimRight(s.Quick.PublicURL, "/")},
-		"product_name": s.Quick.ProductName,
-		"company_name": s.Quick.CompanyName,
-	})
-	n := len(cfg)
-	pad := (8 - (exeSize+int64(n)+12)%8) % 8
-	out := make([]byte, pad, int(pad)+n+12)
-	out = append(out, cfg...)
-	out = append(out, byte(n), byte(n>>8), byte(n>>16), byte(n>>24))
-	return append(out, quickTrailerMagic...)
+func (s *Service) quickConfig(ctx context.Context) (*builder.ClientConfig, error) {
+	cfg := &builder.ClientConfig{V: 1, Mode: "quick", ProductName: s.Quick.ProductName, CompanyName: s.Quick.CompanyName,
+		Servers: []string{strings.TrimRight(s.Quick.PublicURL, "/")}, Channel: "production"}
+	if s.Quick.Channel != nil {
+		cfg.Channel = s.Quick.Channel(ctx)
+	}
+	if s.Quick.UpdateKeys != nil {
+		cfg.UpdateKeys = s.Quick.UpdateKeys()
+	}
+	if cfg.ProductName == "" {
+		cfg.ProductName = "RHIS Remote"
+	}
+	servers, err := builder.NormalizeServers(cfg.Servers)
+	if err != nil {
+		return nil, err
+	}
+	cfg.Servers = servers
+	return cfg, cfg.Validate()
+}
+
+var quickBuilt struct {
+	sync.Mutex
+	key string
+	exe []byte
+	sum string
+}
+
+// quickDownload returns the exe with this server's configuration embedded,
+// cached until the file or the configuration changes.
+func (s *Service) quickDownload(ctx context.Context, qf *quickFile) ([]byte, string, error) {
+	cfg, err := s.quickConfig(ctx)
+	if err != nil {
+		return nil, "", err
+	}
+	js, _ := json.Marshal(cfg)
+	key := qf.path + "|" + qf.SHA256 + "|" + string(js)
+	quickBuilt.Lock()
+	defer quickBuilt.Unlock()
+	if quickBuilt.key == key {
+		return quickBuilt.exe, quickBuilt.sum, nil
+	}
+	raw, err := os.ReadFile(qf.path)
+	if err != nil {
+		return nil, "", err
+	}
+	exe, err := embedQuick(raw, cfg)
+	if err != nil {
+		return nil, "", err
+	}
+	sum := sha256.Sum256(exe)
+	quickBuilt.key, quickBuilt.exe, quickBuilt.sum = key, exe, hex.EncodeToString(sum[:])
+	return exe, quickBuilt.sum, nil
+}
+
+// embedQuick writes cfg into exe. An unsigned exe gets the builder's trailer
+// (builder.Embed). A signed one keeps its signature: the same trailer goes after
+// the certificate table, outside what the signature covers, where the client
+// also looks. Windows accepts that unless the optional EnableCertPaddingCheck
+// policy is on; a build from the client builder is re-signed instead.
+func embedQuick(exe []byte, cfg *builder.ClientConfig) ([]byte, error) {
+	signed, err := builder.IsSigned(exe)
+	if err != nil {
+		return nil, err
+	}
+	if !signed {
+		return builder.Embed(exe, cfg)
+	}
+	if _, err := builder.Extract(exe); err == nil {
+		return nil, errors.New("executable already contains a configuration")
+	}
+	js, err := json.Marshal(cfg)
+	if err != nil {
+		return nil, err
+	}
+	pad := (8 - (len(exe)+len(js)+12)%8) % 8
+	out := make([]byte, 0, len(exe)+pad+len(js)+12)
+	out = append(out, exe...)
+	out = append(out, make([]byte, pad)...)
+	out = append(out, js...)
+	out = binary.LittleEndian.AppendUint32(out, uint32(len(js)))
+	return append(out, builder.Magic...), nil
 }
 
 // handleQuickLatest tells a running client which version the server offers.
-// The checksum covers the exe as downloaded, so including the config block.
+// It is for clients without update keys; downloads from this server carry the
+// keys and use the signed update endpoint. The checksum covers the exe as downloaded.
 func (s *Service) handleQuickLatest(w http.ResponseWriter, r *http.Request) {
 	qf := s.quickFile()
 	if qf == nil || qf.Version == "" {
 		fail(w, 404, "quick_not_available", nil)
 		return
 	}
-	f, err := os.Open(qf.path)
+	_, sum, err := s.quickDownload(r.Context(), qf)
 	if err != nil {
-		fail(w, 500, "internal", err)
+		fail(w, 503, "quick_not_available", err)
 		return
 	}
-	defer f.Close()
-	h := sha256.New()
-	io.Copy(h, f)
-	h.Write(s.quickTrailer(qf.Size))
-	writeJSON(w, 200, map[string]any{"version": qf.Version, "url": "/api/agent/v1/quick/download", "sha256": hex.EncodeToString(h.Sum(nil))})
+	writeJSON(w, 200, map[string]any{"version": qf.Version, "url": "/api/agent/v1/quick/download", "sha256": sum})
 }
 
-// handleQuickDownload serves the exe with this server's address appended, so
-// the customer only has to start it. It is public: the exe holds no secrets.
+// handleQuickDownload serves the exe with this server's address and update keys
+// embedded, so the customer only has to start it. It is public: the exe holds no
+// secrets. Embedding removes a signature, so a signed exe should come from the
+// client builder instead.
 func (s *Service) handleQuickDownload(w http.ResponseWriter, r *http.Request) {
 	qf := s.quickFile()
 	if qf == nil {
 		fail(w, 404, "quick_not_available", nil)
 		return
 	}
-	f, err := os.Open(qf.path)
+	exe, _, err := s.quickDownload(r.Context(), qf)
 	if err != nil {
-		fail(w, 500, "internal", err)
+		fail(w, 503, "quick_not_available", err)
 		return
 	}
-	defer f.Close()
-	trailer := s.quickTrailer(qf.Size)
-	name := "RHIS-QuickSupport.exe"
 	w.Header().Set("Content-Type", "application/vnd.microsoft.portable-executable")
-	w.Header().Set("Content-Disposition", `attachment; filename="`+name+`"`)
-	w.Header().Set("Content-Length", fmt.Sprint(qf.Size+int64(len(trailer))))
+	w.Header().Set("Content-Disposition", `attachment; filename="RHIS-QuickSupport.exe"`)
+	w.Header().Set("Content-Length", fmt.Sprint(len(exe)))
 	w.Header().Set("Cache-Control", "no-cache")
 	if r.Method == http.MethodHead {
 		return
 	}
-	if _, err := io.Copy(w, f); err == nil {
-		w.Write(trailer)
-	}
+	w.Write(exe)
 }
 
 // handleQuickInfo tells the portal whether the QuickSupport download exists.

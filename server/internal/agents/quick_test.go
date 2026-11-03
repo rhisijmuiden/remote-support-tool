@@ -22,6 +22,7 @@ import (
 
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/audit"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/auth"
+	"github.com/rhisijmuiden/remote-support-tool/server/internal/builder"
 )
 
 func TestNormalizeCode(t *testing.T) {
@@ -46,11 +47,12 @@ func TestQuickSupport(t *testing.T) {
 	}
 	user := &auth.User{ID: uid, Email: "q@example.com", Name: "Quinn", Role: "technician"}
 	dir := t.TempDir()
-	exe := []byte("MZ pretend this is a Windows exe")
+	exe := fakePE(100)
 	os.WriteFile(filepath.Join(dir, QuickExe), exe, 0o644)
 	os.WriteFile(filepath.Join(dir, QuickVersionFile), []byte("0.1.0\n"), 0o644)
 	svc := &Service{DB: pool, Audit: &audit.Log{DB: pool}, PingInterval: time.Second, AgentDir: dir,
-		Quick: QuickOptions{PublicURL: "https://remote.example.com/", ProductName: "RHIS Remote", CompanyName: "RHIS"}}
+		Quick: QuickOptions{PublicURL: "https://remote.example.com/", ProductName: "RHIS Remote", CompanyName: "RHIS",
+			UpdateKeys: func() []string { return []string{"a2V5"} }, Channel: func(context.Context) string { return "test" }}}
 	if err := svc.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -127,23 +129,19 @@ func TestQuickSupport(t *testing.T) {
 		t.Fatalf("request: %v", m)
 	}
 
-	// Download: the exe with this server's address appended.
+	// Download: the exe with this server's address and update keys embedded (builder layout).
 	resp, err := http.Get(srv.URL + "/api/agent/v1/quick/download")
 	if err != nil {
 		t.Fatal(err)
 	}
 	body, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
-	if resp.StatusCode != 200 || !bytes.HasPrefix(body, exe) || !bytes.HasSuffix(body, []byte(quickTrailerMagic)) {
-		t.Fatalf("download: %d %q", resp.StatusCode, body)
+	if resp.StatusCode != 200 || !bytes.HasPrefix(body, exe) {
+		t.Fatalf("download: %d", resp.StatusCode)
 	}
-	n := binary.LittleEndian.Uint32(body[len(body)-12:])
-	var cfg struct {
-		Servers     []string `json:"servers"`
-		CompanyName string   `json:"company_name"`
-		Mode        string   `json:"mode"`
-	}
-	if err := json.Unmarshal(body[len(body)-12-int(n):len(body)-12], &cfg); err != nil || len(cfg.Servers) != 1 || cfg.Servers[0] != "https://remote.example.com" || cfg.CompanyName != "RHIS" || cfg.Mode != "quick" {
+	cfg, err := builder.Extract(body)
+	if err != nil || len(cfg.Servers) != 1 || cfg.Servers[0] != "https://remote.example.com" || cfg.CompanyName != "RHIS" ||
+		cfg.Mode != "quick" || cfg.Channel != "test" || len(cfg.UpdateKeys) != 1 {
 		t.Fatalf("trailer: %+v %v", cfg, err)
 	}
 	if len(body)%8 != 0 {
@@ -156,6 +154,21 @@ func TestQuickSupport(t *testing.T) {
 	sum := sha256.Sum256(body)
 	if latest.Version != "0.1.0" || latest.SHA256 != hex.EncodeToString(sum[:]) {
 		t.Fatalf("latest: %+v", latest)
+	}
+
+	// A signed exe keeps its signature: the configuration goes after the certificate table.
+	signed := fakeSign(exe)
+	got, err := embedQuick(signed, cfg)
+	if err != nil || !bytes.HasPrefix(got, signed) || !bytes.HasSuffix(got, []byte(builder.Magic)) || len(got)%8 != 0 {
+		t.Fatalf("signed embed: %v", err)
+	}
+	if ok, _ := builder.IsSigned(got); !ok {
+		t.Fatal("signature removed")
+	}
+	n := binary.LittleEndian.Uint32(got[len(got)-12:])
+	var back builder.ClientConfig
+	if err := json.Unmarshal(got[len(got)-12-int(n):len(got)-12], &back); err != nil || back.Servers[0] != "https://remote.example.com" {
+		t.Fatalf("signed trailer: %+v %v", back, err)
 	}
 
 	// Closing the client frees the code at once.
@@ -186,4 +199,30 @@ func TestQuickSupport(t *testing.T) {
 	if !tokenGone {
 		t.Fatal("janitor did not retire the idle quick device")
 	}
+}
+
+// fakePE is the smallest PE file the builder's reader accepts (PE32+, 16 data directories).
+func fakePE(body int) []byte {
+	b := make([]byte, 0x40+24+240+body)
+	b[0], b[1] = 'M', 'Z'
+	binary.LittleEndian.PutUint32(b[0x3c:], 0x40)
+	copy(b[0x40:], "PE\x00\x00")
+	opt := 0x40 + 24
+	binary.LittleEndian.PutUint16(b[opt:], 0x20b)
+	binary.LittleEndian.PutUint32(b[opt+108:], 16)
+	return b
+}
+
+// fakeSign appends a certificate table the way Authenticode does.
+func fakeSign(exe []byte) []byte {
+	out := append([]byte(nil), exe...)
+	for len(out)%8 != 0 {
+		out = append(out, 0)
+	}
+	off := len(out)
+	out = append(out, bytes.Repeat([]byte{0xAB}, 64)...)
+	pos := 0x40 + 24 + 112 + 4*8
+	binary.LittleEndian.PutUint32(out[pos:], uint32(off))
+	binary.LittleEndian.PutUint32(out[pos+4:], 64)
+	return out
 }

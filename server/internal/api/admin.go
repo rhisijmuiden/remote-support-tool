@@ -13,6 +13,7 @@ import (
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/audit"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/auth"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/backup"
+	"github.com/rhisijmuiden/remote-support-tool/server/internal/cluster"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/mail"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/version"
 )
@@ -218,7 +219,10 @@ func (a *API) putBackup(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, err.Error(), nil)
 		return
 	}
-	if a.Scheduler != nil {
+	// Whichever server runs the scheduler (the cluster leader) reloads it.
+	if a.Bus != nil {
+		a.Bus.Publish(cluster.EventBackupSettings, nil)
+	} else if a.Scheduler != nil {
 		a.Scheduler.Reload(r.Context())
 	}
 	a.Audit.Record(r.Context(), actor(r), "settings.backup_saved", in.Target.Label(), nil)

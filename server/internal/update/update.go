@@ -84,6 +84,13 @@ func (s *Service) client() *http.Client {
 
 func (s *Service) Settings(ctx context.Context) (Settings, error) {
 	st := Settings{Channel: version.Channel}
+	if s.Store == nil {
+		// Servers without a database (relays) follow the channel they were built for.
+		if st.Channel != "test" {
+			st.Channel = "production"
+		}
+		return st, nil
+	}
 	_, err := s.Store.Get(ctx, SettingsKey, &st)
 	if st.Channel != "production" && st.Channel != "test" {
 		st.Channel = "production"
@@ -177,15 +184,7 @@ func (s *Service) latest(ctx context.Context, channel string) (*Release, error) 
 		if r.Draft || !semver.IsValid(r.TagName) || (channel == "production" && r.Prerelease) {
 			continue
 		}
-		rel := &Release{Version: r.TagName, Name: r.Name, Notes: r.Body, URL: r.HTMLURL, PublishedAt: r.PublishedAt, Prerelease: r.Prerelease}
-		for _, a := range r.Assets {
-			switch a.Name {
-			case s.Asset:
-				rel.assetURL = a.URL
-			case "checksums.txt":
-				rel.sumsURL = a.URL
-			}
-		}
+		rel := releaseFrom(r, s.Asset)
 		if rel.assetURL == "" || rel.sumsURL == "" {
 			continue
 		}
@@ -214,6 +213,44 @@ func (s *Service) Apply(ctx context.Context) (*Release, error) {
 		return nil, errors.New("already_current")
 	}
 	return rel, applyRelease(ctx, s, rel)
+}
+
+// ApplyVersion installs one specific release, used by relays to follow the version of
+// their control server.
+func (s *Service) ApplyVersion(ctx context.Context, tag string) (*Release, error) {
+	if !semver.IsValid(tag) {
+		return nil, errors.New("invalid_version")
+	}
+	if tag == version.Version {
+		return nil, errors.New("already_current")
+	}
+	resp, err := s.get(ctx, fmt.Sprintf("%s/repos/%s/releases/tags/%s", strings.TrimRight(s.APIURL, "/"), s.Repo, tag))
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	var r ghRelease
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 16<<20)).Decode(&r); err != nil {
+		return nil, err
+	}
+	rel := releaseFrom(r, s.Asset)
+	if r.Draft || rel.assetURL == "" || rel.sumsURL == "" {
+		return nil, errors.New("no_release")
+	}
+	return rel, applyRelease(ctx, s, rel)
+}
+
+func releaseFrom(r ghRelease, asset string) *Release {
+	rel := &Release{Version: r.TagName, Name: r.Name, Notes: r.Body, URL: r.HTMLURL, PublishedAt: r.PublishedAt, Prerelease: r.Prerelease}
+	for _, a := range r.Assets {
+		switch a.Name {
+		case asset:
+			rel.assetURL = a.URL
+		case "checksums.txt":
+			rel.sumsURL = a.URL
+		}
+	}
+	return rel
 }
 
 func applyRelease(ctx context.Context, s *Service, rel *Release) error {
