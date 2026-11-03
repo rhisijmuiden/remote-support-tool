@@ -4,6 +4,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"strings"
 
@@ -43,7 +44,15 @@ type Config struct {
 		// {in}, {out}, {name}, {url} and {timestamp} are replaced. Only settable here, not in the portal.
 		Command string `yaml:"command"`
 	} `yaml:"code_signing"`
-	Branding struct {
+	// AllowInsecureHTTP permits serving plain HTTP on a non-loopback address. Off by default:
+	// passwords and session cookies must never cross the network unencrypted.
+	AllowInsecureHTTP bool `yaml:"allow_insecure_http"`
+	// TrustedProxies lists extra reverse proxies (IPs or CIDR ranges) in front of the local
+	// Caddy, e.g. Zoraxy. X-Forwarded-For hops added by these are skipped when looking for
+	// the real client address. Loopback is always trusted.
+	TrustedProxies []string `yaml:"trusted_proxies"`
+	trustedNets    []*net.IPNet
+	Branding       struct {
 		ProductName string `yaml:"product_name"`
 		CompanyName string `yaml:"company_name"`
 	} `yaml:"branding"`
@@ -51,8 +60,8 @@ type Config struct {
 
 func Default() Config {
 	var c Config
-	c.Listen = ":8080"
-	c.PublicURL = "http://localhost:8080"
+	c.Listen = "127.0.0.1:8080"
+	c.PublicURL = "https://localhost"
 	c.DataDir = "/var/lib/rhis-remote"
 	c.Roles = []string{"all"}
 	c.Update.Repo = "rhisijmuiden/remote-support-tool"
@@ -91,10 +100,14 @@ func Load(path string) (Config, error) {
 	env("DATA_DIR", &c.DataDir)
 	env("SECRET_KEY", &c.SecretKey)
 	env("UPDATE_TOKEN", &c.Update.Token)
+	if v := os.Getenv("RHIS_REMOTE_TRUSTED_PROXIES"); v != "" {
+		c.TrustedProxies = strings.Split(v, ",")
+	}
 	if v := os.Getenv("RHIS_REMOTE_ROLES"); v != "" {
 		c.Roles = strings.Split(v, ",")
 	}
-	return c, c.Validate()
+	err := c.Validate()
+	return c, err
 }
 
 func (c *Config) Validate() error {
@@ -121,7 +134,60 @@ func (c *Config) Validate() error {
 		roles = append(roles, r)
 	}
 	c.Roles = roles
+	if c.TLS.CertFile == "" && !c.AllowInsecureHTTP && !isLoopback(c.Listen) {
+		return fmt.Errorf("listen %q would serve plain HTTP on the network: listen on 127.0.0.1 behind the HTTPS proxy (Caddy), set tls.cert_file and tls.key_file, or set allow_insecure_http: true for a lab setup", c.Listen)
+	}
+	if !strings.HasPrefix(c.PublicURL, "https://") && !c.AllowInsecureHTTP {
+		return fmt.Errorf("public_url must start with https:// (got %q); set allow_insecure_http: true only for a lab setup", c.PublicURL)
+	}
+	c.trustedNets = nil
+	for _, p := range c.TrustedProxies {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		if !strings.Contains(p, "/") {
+			if ip := net.ParseIP(p); ip != nil && ip.To4() != nil {
+				p += "/32"
+			} else {
+				p += "/128"
+			}
+		}
+		_, n, err := net.ParseCIDR(p)
+		if err != nil {
+			return fmt.Errorf("trusted_proxies: %q is not an IP address or CIDR range", p)
+		}
+		c.trustedNets = append(c.trustedNets, n)
+	}
 	return nil
+}
+
+// IsTrustedProxy reports whether ip is loopback or listed in trusted_proxies.
+func (c *Config) IsTrustedProxy(ip net.IP) bool {
+	if ip == nil {
+		return false
+	}
+	if ip.IsLoopback() {
+		return true
+	}
+	for _, n := range c.trustedNets {
+		if n.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+func isLoopback(listen string) bool {
+	host, _, err := net.SplitHostPort(listen)
+	if err != nil {
+		return false
+	}
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 func (c *Config) HasRole(r string) bool {

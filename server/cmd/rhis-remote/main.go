@@ -32,6 +32,7 @@ import (
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/db"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/mail"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/secret"
+	"github.com/rhisijmuiden/remote-support-tool/server/internal/sessions"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/settings"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/update"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/version"
@@ -107,6 +108,10 @@ func serve(cfgPath string) error {
 	}
 	agents := &agentupdate.Service{DB: pool, Store: store, Signer: signer, Code: code, DataDir: cfg.DataDir,
 		APIURL: cfg.Update.APIURL, Repo: agentsRepo, Token: cfg.Update.Token, Keep: cfg.Agents.Keep}
+	recStore, err := sessions.NewStore(cfg.DataDir, cfg.SecretKey)
+	if err != nil {
+		return err
+	}
 	a := &api.API{
 		Cfg:      &cfg,
 		DB:       pool,
@@ -117,6 +122,7 @@ func serve(cfgPath string) error {
 		Builder:  &builder.Service{DB: pool, Box: box, Src: agents, DataDir: cfg.DataDir},
 		Agents:   agents,
 		CodeSign: code,
+		Sessions: &sessions.Service{DB: pool, Store: store, Rec: recStore},
 		Update:   &update.Service{Store: store, APIURL: cfg.Update.APIURL, Repo: cfg.Update.Repo, Asset: cfg.Update.Asset, Token: cfg.Update.Token},
 		Restart: func() {
 			slog.Info("restarting after update")
@@ -135,6 +141,20 @@ func serve(cfgPath string) error {
 		if every, err := time.ParseDuration(cfg.Agents.SyncInterval); err == nil && every > 0 {
 			go agents.RunSync(ctx, every)
 		}
+		go func() {
+			t := time.NewTicker(time.Hour)
+			defer t.Stop()
+			for {
+				if err := a.Sessions.Cleanup(ctx); err != nil && ctx.Err() == nil {
+					slog.Error("session cleanup", "err", err)
+				}
+				select {
+				case <-ctx.Done():
+					return
+				case <-t.C:
+				}
+			}
+		}()
 	}
 
 	mux := http.NewServeMux()

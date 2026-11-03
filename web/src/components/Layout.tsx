@@ -83,6 +83,7 @@ export function Layout({ children }: { children: ReactNode }) {
         {nav("/devices", "devices", t("nav.devices"))}
         {nav("/customers", "customers", t("nav.customers"))}
         {nav("/builds", "builder", t("nav.builds"))}
+        {nav("/sessions", "sessions", t("nav.sessions"))}
         {admin && (
           <>
             <div className="grp">{t("nav.group_settings")}</div>
@@ -91,6 +92,7 @@ export function Layout({ children }: { children: ReactNode }) {
             {nav("/settings/agent-updates", "updates", t("nav.agent_updates"))}
             {nav("/settings/codesign", "shield", t("nav.codesign"))}
             {nav("/settings/backup", "backup", t("nav.backup"))}
+            {nav("/settings/recording", "record", t("nav.recording"))}
             {nav("/settings/audit", "audit", t("nav.audit"))}
           </>
         )}
