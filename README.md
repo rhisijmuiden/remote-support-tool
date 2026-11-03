@@ -53,6 +53,23 @@ The installer sets up PostgreSQL, Caddy, a `rhis-remote` system user, `/etc/rhis
 
 **All traffic is encrypted.** Caddy serves HTTPS on port 443 (HTTP only redirects) and the server itself listens on `127.0.0.1` only. Without `--domain`, Caddy's internal CA issues the certificate; the installer prints the root CA path and SHA-256 fingerprint so you can verify it and trust it on your PCs. The server refuses to start with a plain-HTTP `public_url` or a non-loopback listen address without TLS, unless `allow_insecure_http: true` is set for a lab.
 
+### Behind a reverse proxy (Zoraxy, nginx, Traefik, ...)
+
+If another reverse proxy already owns ports 80/443 and the public certificate, install with the public name and the proxy's IP address (or CIDR range):
+
+```bash
+sudo bash install.sh --domain remote.example.com --behind-proxy 10.10.4.10
+```
+
+Then point the proxy at **`https://<server-ip>:443`**, so the hop between the proxy and this server is encrypted as well. In the proxy:
+
+- Forward `remote.example.com` to `https://<server-ip>:443` and keep the original `Host` header.
+- The upstream certificate comes from Caddy's internal CA. Import the root CA the installer prints as a trusted upstream CA, or enable *skip TLS verification* for this upstream (in Zoraxy: the upstream's "Skip TLS validation" option).
+- Enable WebSocket support (needed for live sessions).
+- Make sure the proxy sends `X-Forwarded-For` and `X-Forwarded-Proto` (Zoraxy and nginx do this by default or with the usual `proxy_set_header` lines).
+
+The server only believes forwarding headers from trusted hops: the local Caddy and the addresses in `trusted_proxies` (written by `--behind-proxy`). Login rate limiting and the activity log therefore see the real visitor, and a client cannot spoof its address. The installer remembers `--domain` and `--behind-proxy` in `/etc/rhis-remote/install.env`; use `--direct` to drop the proxy setup.
+
 ## Branches and releases
 
 | Branch | Channel | Release |

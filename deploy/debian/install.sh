@@ -4,31 +4,57 @@
 #   sudo ./install.sh                         # latest production release on https://<server-ip> (internal certificate)
 #   sudo ./install.sh --domain remote.rhis.nl # HTTPS with a free Let's Encrypt certificate
 #   sudo ./install.sh --channel test          # latest test pre-release
+#   sudo ./install.sh --domain remote.rhis.nl --behind-proxy 10.10.4.10
+#                                             # behind a reverse proxy (Zoraxy, nginx, ...) that
+#                                             # owns the public certificate for that domain
 #   sudo ./install.sh --binary ./rhis-remote  # install a binary you built yourself
 #
 # All traffic is encrypted: Caddy terminates HTTPS on port 443 and the server itself only
 # listens on 127.0.0.1. Without --domain, Caddy's own internal CA issues the certificate;
 # the installer prints its fingerprint so you can check it or trust it in your browser.
 #
-# Running it again upgrades the binary and keeps the configuration and database.
+# Behind a reverse proxy, the proxy terminates the public HTTPS and forwards to
+# https://<server-ip>:443 here, so the hop to this server stays encrypted too. Caddy only
+# trusts X-Forwarded-* headers from the proxy address(es) given with --behind-proxy.
+#
+# Running it again upgrades the binary and keeps the configuration, database and the
+# --domain/--behind-proxy choice (stored in /etc/rhis-remote/install.env).
 set -euo pipefail
 
 REPO="rhisijmuiden/remote-support-tool"
 ASSET="rhis-remote_linux_amd64.tar.gz"
 CHANNEL="production"
 DOMAIN=""
+PROXY=""
 BINARY=""
+# Choices from an earlier run; command-line options override them.
+if [[ -f /etc/rhis-remote/install.env ]]; then
+  # shellcheck disable=SC1091
+  . /etc/rhis-remote/install.env
+  DOMAIN="${RHIS_DOMAIN:-}"; PROXY="${RHIS_PROXY:-}"
+fi
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --domain) DOMAIN="$2"; shift 2 ;;
+    --behind-proxy) PROXY="$2"; shift 2 ;;
+    --direct) PROXY=""; shift ;;
     --channel) CHANNEL="$2"; shift 2 ;;
     --binary) BINARY="$(realpath "$2")"; shift 2 ;;
-    -h|--help) sed -n '2,10p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
     *) echo "Unknown option: $1" >&2; exit 2 ;;
   esac
 done
 [[ $EUID -eq 0 ]] || { echo "Run as root (sudo)." >&2; exit 1; }
 [[ "$CHANNEL" == "production" || "$CHANNEL" == "test" ]] || { echo "--channel must be production or test" >&2; exit 2; }
+if [[ -n "$PROXY" ]]; then
+  [[ -n "$DOMAIN" ]] || { echo "--behind-proxy needs --domain: the public name the proxy serves." >&2; exit 2; }
+  # Comma or space separated IPs or CIDR ranges of the proxy.
+  PROXY="$(echo "$PROXY" | tr ',' ' ' | xargs)"
+  for p in $PROXY; do
+    [[ "$p" =~ ^[0-9a-fA-F:.]+(/[0-9]{1,3})?$ ]] || { echo "--behind-proxy: '$p' is not an IP address or CIDR range" >&2; exit 2; }
+  done
+fi
+[[ -z "$DOMAIN" || "$DOMAIN" =~ ^[A-Za-z0-9.-]+$ ]] || { echo "--domain: '$DOMAIN' is not a host name" >&2; exit 2; }
 
 say() { printf '\n\033[1;38;2;255;107;87m==>\033[0m %s\n' "$*"; }
 
@@ -103,6 +129,21 @@ elif grep -qE '^listen: "(:|0\.0\.0\.0:)8080"' /etc/rhis-remote/config.yaml && !
   if [[ -n "$DOMAIN" ]]; then url="https://$DOMAIN"; else url="https://$(hostname -I | awk '{print $1}')"; fi
   sed -i -E "s|^public_url: .*|public_url: \"$url\"|" /etc/rhis-remote/config.yaml
 fi
+if [[ -n "$DOMAIN" ]] && ! grep -q "^public_url: \"https://$DOMAIN\"" /etc/rhis-remote/config.yaml; then
+  say "Setting the public address to https://$DOMAIN"
+  sed -i -E "s|^public_url: .*|public_url: \"https://$DOMAIN\"|" /etc/rhis-remote/config.yaml
+fi
+# Tell the server which proxy hops to skip when it looks for the visitor's address.
+sed -i '/^trusted_proxies:/d' /etc/rhis-remote/config.yaml
+if [[ -n "$PROXY" ]]; then
+  echo "trusted_proxies: [$(printf '"%s",' $PROXY | sed 's/,$//')]" >> /etc/rhis-remote/config.yaml
+fi
+cat > /etc/rhis-remote/install.env <<ENV
+# Written by install.sh; used when it runs again.
+RHIS_DOMAIN="$DOMAIN"
+RHIS_PROXY="$PROXY"
+ENV
+chmod 0640 /etc/rhis-remote/install.env
 
 say "Installing the service"
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -117,8 +158,25 @@ systemctl restart rhis-remote
 
 say "Setting up HTTPS with Caddy"
 ip="$(hostname -I | awk '{print $1}')"
-if [[ -n "$DOMAIN" ]]; then
-  cat > /etc/caddy/Caddyfile <<CADDY
+if [[ -n "$PROXY" ]]; then
+  cat > /etc/caddy/Caddyfile.new <<CADDY
+# Managed by the RHIS Remote installer. Behind the reverse proxy $PROXY, which serves
+# https://$DOMAIN publicly. Caddy keeps the hop from the proxy encrypted with its internal CA
+# and only trusts X-Forwarded-* headers coming from the proxy.
+{
+	default_sni $ip
+	servers {
+		trusted_proxies static $PROXY
+	}
+}
+https://$DOMAIN, https://$ip, https://$(hostname) {
+	tls internal
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:8080
+}
+CADDY
+elif [[ -n "$DOMAIN" ]]; then
+  cat > /etc/caddy/Caddyfile.new <<CADDY
 # Managed by the RHIS Remote installer. HTTPS with Let's Encrypt for $DOMAIN.
 $DOMAIN {
 	encode zstd gzip
@@ -126,7 +184,7 @@ $DOMAIN {
 }
 CADDY
 else
-  cat > /etc/caddy/Caddyfile <<CADDY
+  cat > /etc/caddy/Caddyfile.new <<CADDY
 # Managed by the RHIS Remote installer. HTTPS with Caddy's internal CA (no public domain).
 {
 	default_sni $ip
@@ -138,6 +196,9 @@ https://$ip, https://$(hostname) {
 }
 CADDY
 fi
+caddy validate --config /etc/caddy/Caddyfile.new --adapter caddyfile >/dev/null 2>&1 \
+  || { caddy validate --config /etc/caddy/Caddyfile.new --adapter caddyfile; echo "Generated Caddyfile is invalid; kept the old one." >&2; exit 1; }
+mv /etc/caddy/Caddyfile.new /etc/caddy/Caddyfile
 systemctl enable --now caddy >/dev/null
 systemctl reload caddy || systemctl restart caddy
 
@@ -147,7 +208,7 @@ for i in $(seq 1 30); do
 done
 if curl -fsS http://127.0.0.1:8080/healthz >/dev/null 2>&1; then
   url="$(grep '^public_url:' /etc/rhis-remote/config.yaml | cut -d'"' -f2)"
-  if [[ -z "$DOMAIN" ]]; then
+  if [[ -z "$DOMAIN" || -n "$PROXY" ]]; then
     curl -sk -o /dev/null "https://$ip/" || true
     root=/var/lib/caddy/.local/share/caddy/pki/authorities/local/root.crt
     for i in $(seq 1 10); do [[ -f "$root" ]] && break; sleep 1; done
@@ -156,7 +217,13 @@ if curl -fsS http://127.0.0.1:8080/healthz >/dev/null 2>&1; then
       echo "The certificate comes from this server's own CA. Your browser warns until you trust it."
       echo "Root CA: $root"
       echo "SHA-256 fingerprint: $(openssl x509 -in "$root" -noout -fingerprint -sha256 | cut -d= -f2)"
-      echo "Import that file as a trusted root on your PC, or use --domain with a public DNS name."
+      if [[ -n "$PROXY" ]]; then
+        echo "In your reverse proxy, forward https://$DOMAIN to https://$ip:443 and either import"
+        echo "that root CA as trusted upstream CA or enable 'skip TLS verification' for this upstream."
+        echo "Keep the original Host header and enable WebSocket support."
+      else
+        echo "Import that file as a trusted root on your PC, or use --domain with a public DNS name."
+      fi
     fi
   fi
   say "RHIS Remote is running. Open $url to create the first administrator."
