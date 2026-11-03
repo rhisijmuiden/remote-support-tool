@@ -60,4 +60,6 @@ The `branding/` folder holds the RHIS house style used by the portal. Product an
 
 ## License
 
-AGPL-3.0-only. See [LICENSE](LICENSE).
+Copyright (C) 2026 RHIS.
+
+This project is licensed under the [GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0-only). If you run a modified version as a network service, you must make your source code available to its users. The portal links to this repository from its Info screen.
