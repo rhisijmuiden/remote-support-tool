@@ -17,6 +17,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/rhisijmuiden/remote-support-tool/server/internal/agents"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/api"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/audit"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/auth"
@@ -97,6 +98,16 @@ func serve(cfgPath string) error {
 			stop()
 		},
 	}
+	if cfg.HasRole("gateway") {
+		ice := agents.StaticICE{}
+		for _, s := range cfg.Gateway.ICEServers {
+			ice = append(ice, agents.ICEServer{URLs: s.URLs, Username: s.Username, Credential: s.Credential})
+		}
+		a.Agents = &agents.Service{DB: pool, Audit: a.Audit, ICE: ice, AgentDir: cfg.Gateway.AgentDir}
+		if err := a.Agents.Start(ctx); err != nil {
+			return err
+		}
+	}
 	if cfg.HasRole("scheduler") {
 		a.Scheduler = &backup.Scheduler{Svc: a.Backup, OnDone: func(kind string, run *backup.Run, err error) {
 			// Scheduled runs are logged as the system.
@@ -116,6 +127,9 @@ func serve(cfgPath string) error {
 		}
 		w.Write([]byte("ok"))
 	})
+	if a.Agents != nil {
+		mux.Handle("/api/agent/v1/", http.StripPrefix("/api/agent/v1", a.Agents.AgentRoutes()))
+	}
 	if cfg.HasRole("api") {
 		mux.Handle("/api/", http.StripPrefix("/api", a.Routes()))
 	}

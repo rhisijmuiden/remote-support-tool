@@ -16,6 +16,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/rhisijmuiden/remote-support-tool/server/internal/agents"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/audit"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/auth"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/backup"
@@ -34,6 +35,7 @@ type API struct {
 	Backup    *backup.Service
 	Scheduler *backup.Scheduler
 	Update    *update.Service
+	Agents    *agents.Service // nil when this server does not run the gateway role
 	// Restart is called after an update has been installed.
 	Restart func()
 
@@ -64,6 +66,9 @@ func (a *API) Routes() http.Handler {
 		r.Get("/devices", a.devices)
 		r.Get("/customers", a.customers)
 		r.Get("/system/info", a.systemInfo)
+		if a.Agents != nil {
+			a.Agents.PortalRoutes(r)
+		}
 		r.Group(func(r chi.Router) {
 			r.Use(requireAdmin)
 			r.Get("/users", a.listUsers)
@@ -339,7 +344,7 @@ func (a *API) dashboard(w http.ResponseWriter, r *http.Request) {
 		LastBackup     *backup.Run `json:"last_backup"`
 	}
 	err := a.DB.QueryRow(ctx, `SELECT count(*), count(*) FILTER (WHERE online), count(*) FILTER (WHERE NOT online),
-		count(*) FILTER (WHERE NOT online AND (last_seen_at IS NULL OR last_seen_at < now() - interval '7 days')) FROM devices`).
+		count(*) FILTER (WHERE NOT online AND (last_seen_at IS NULL OR last_seen_at < now() - interval '7 days')) FROM devices WHERE kind='agent'`).
 		Scan(&out.Clients, &out.Online, &out.Offline, &out.OfflineWeek)
 	if err == nil {
 		err = a.DB.QueryRow(ctx, `SELECT count(*) FROM remote_sessions WHERE ended_at IS NULL`).Scan(&out.ActiveSessions)
@@ -359,7 +364,7 @@ func (a *API) dashboard(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) devices(w http.ResponseWriter, r *http.Request) {
 	rows, err := a.DB.Query(r.Context(), `SELECT d.id, d.device_code, d.hostname, d.os_version, d.agent_version, d.last_user, d.last_seen_at, d.online, c.name
-		FROM devices d LEFT JOIN customers c ON c.id=d.customer_id ORDER BY d.online DESC, d.hostname`)
+		FROM devices d LEFT JOIN customers c ON c.id=d.customer_id WHERE d.kind='agent' ORDER BY d.online DESC, d.hostname`)
 	if err != nil {
 		fail(w, 500, "internal", err)
 		return
@@ -390,7 +395,7 @@ func (a *API) devices(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) customers(w http.ResponseWriter, r *http.Request) {
 	rows, err := a.DB.Query(r.Context(), `SELECT c.id, c.name, count(d.id), count(d.id) FILTER (WHERE d.online)
-		FROM customers c LEFT JOIN devices d ON d.customer_id=c.id GROUP BY c.id ORDER BY c.name`)
+		FROM customers c LEFT JOIN devices d ON d.customer_id=c.id AND d.kind='agent' GROUP BY c.id ORDER BY c.name`)
 	if err != nil {
 		fail(w, 500, "internal", err)
 		return
