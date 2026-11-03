@@ -17,7 +17,7 @@ Self-hosted remote support for Windows: remote control with unattended access, a
 - **Client builder:** branded installers and QuickSupport clients per customer, with your logo, colour, product name and an ordered list of `https://` servers. The customer's enrolment token is baked in; send the installer with an expiring download link, revoke a client or replace its token at any time. See [docs/client-builder.md](docs/client-builder.md).
 - **Central agent updates:** the server imports agent releases from GitHub (or an upload) and keeps every agent up to date, per channel, with pinned versions, per-customer exceptions and a staged rollout. Update manifests are signed with the server's own Ed25519 key, which every client carries.
 - **Code signing:** installers and agent updates are Authenticode-signed on the server, with an uploaded PFX certificate or a signing command for keys on a hardware token, HSM or cloud service.
-- **One binary, several roles:** `roles: ["all"]` on one machine; later roles (gateway, relay) can run on separate servers.
+- **One binary, several roles, scales out:** `roles: ["all"]` on one machine, including a TURN relay for connections behind strict NAT. Add relay servers close to your customers with a one-time token from the portal (no database needed, they update themselves), or run several control servers on a shared PostgreSQL with NATS. All traffic between servers is encrypted. See [docs/scaling.md](docs/scaling.md).
 
 ## Screenshots
 
@@ -31,12 +31,13 @@ All screenshots are taken from a real `v0.1.0-test.1` server. The backups shown 
 | ![Activity log](docs/screenshots/audit.png) **Activity log** | ![Session recording settings](docs/screenshots/recording-settings.png) **Session recording settings** |
 | ![Sessions](docs/screenshots/sessions.png) **Session log** | ![Session with recording](docs/screenshots/session-detail.png) **Session details, recording and timeline** |
 | ![Share link](docs/screenshots/session-share.png) **Share a recording with a customer** | ![Customer share page](docs/screenshots/shared-recording-nl.png) **What the customer sees (Dutch)** |
-| ![Sessions in Dutch, dark theme](docs/screenshots/sessions-nl-dark.png) **Sessions, dark theme, Dutch** | ![Client builder](docs/screenshots/client-builder.png) **Client builder** |
-| ![Client details](docs/screenshots/client-builder-detail.png) **Client: branding, servers, installers and download links** | ![Edit a client](docs/screenshots/client-builder-edit.png) **Logo colour, type and server failover list** |
-| ![Agent updates](docs/screenshots/agent-updates.png) **Agent updates: policy, staged rollout, releases** | ![Code signing](docs/screenshots/code-signing.png) **Code signing** |
-| ![Client in Dutch, dark theme](docs/screenshots/client-builder-detail-nl-dark.png) **Signed installer, dark theme, Dutch** | |
+| ![Sessions in Dutch, dark theme](docs/screenshots/sessions-nl-dark.png) **Sessions, dark theme, Dutch** | ![Servers](docs/screenshots/servers.png) **Servers: control server and relays** |
+| ![Add a relay server](docs/screenshots/servers-add.png) **Add a relay server with a one-time token** | ![Servers in Dutch, dark theme](docs/screenshots/servers-nl-dark.png) **Servers, dark theme, Dutch** |
+| ![Client builder](docs/screenshots/client-builder.png) **Client builder** | ![Client details](docs/screenshots/client-builder-detail.png) **Client: branding, servers, installers and download links** |
+| ![Edit a client](docs/screenshots/client-builder-edit.png) **Logo, colour, type and server failover list** | ![Agent updates](docs/screenshots/agent-updates.png) **Agent updates: policy, staged rollout, releases** |
+| ![Code signing](docs/screenshots/code-signing.png) **Code signing** | ![Client in Dutch, dark theme](docs/screenshots/client-builder-detail-nl-dark.png) **Signed installer, dark theme, Dutch** |
 
-The session screenshots use demo data; the recording in them was made by a real browser with the portal's recorder and played back from the encrypted store.
+The Servers screenshots show a real control server with a relay that joined with a token, plus one demo relay; the session screenshots use demo data; the recording in them was made by a real browser with the portal's recorder and played back from the encrypted store.
 
 ## Roadmap
 
@@ -47,7 +48,7 @@ The session screenshots use demo data; the recording in them was made by a real 
 | 3. Quick support client (no install, session code) | Planned |
 | 4. Session audit and recording | Server and portal in test; recording goes live with the Windows agent |
 | 5. Client builder and signed central updates | Server and portal in test; the agent side of updates comes with the Windows agent |
-| 6. Multi-server and scale-out | Planned, see [docs/multi-server.md](docs/multi-server.md) |
+| 6. Multi-server and scale-out (relays, NATS cluster) | Relays, cluster and Servers page in test |
 | 7. Code signing and open-source release | Planned |
 
 Details per phase are in [ROADMAP.md](ROADMAP.md) and in the [roadmap issues](https://github.com/rhisijmuiden/remote-support-tool/issues?q=label%3Aroadmap).
@@ -59,7 +60,10 @@ curl -fsSLO https://raw.githubusercontent.com/rhisijmuiden/remote-support-tool/m
 sudo bash install.sh --domain remote.example.com   # HTTPS with a Let's Encrypt certificate
 # or: sudo bash install.sh                         # https://<server-ip> with an internal certificate
 # or: sudo bash install.sh --channel test          # newest test pre-release
+# add --public-ip <address> when the server is behind NAT, for the built-in TURN relay
 ```
+
+A separate relay server is installed with the command from **Settings > Servers > Add relay server** (`install.sh --role relay ...`). Forward 3478 UDP+TCP and 49160-49359 UDP straight to the server running the relay, past any HTTP reverse proxy such as Zoraxy. See [docs/scaling.md](docs/scaling.md).
 
 The installer sets up PostgreSQL, Caddy, a `rhis-remote` system user, `/etc/rhis-remote/config.yaml`, and a hardened systemd service. Open the URL it prints and create the first administrator.
 

@@ -11,7 +11,7 @@ import (
 
 func TestTrustedProxyIP(t *testing.T) {
 	cfg := config.Default()
-	cfg.DatabaseURL, cfg.SecretKey = "postgres://x", "0123456789abcdef0123456789abcdef"
+	cfg.DatabaseURL, cfg.SecretKey = "postgres://localhost/x", "0123456789abcdef0123456789abcdef"
 	cfg.TrustedProxies = []string{"10.10.4.10", "192.168.50.0/24"}
 	if err := cfg.Validate(); err != nil {
 		t.Fatal(err)
@@ -51,7 +51,7 @@ func TestTrustedProxyIP(t *testing.T) {
 
 func TestTrustedProxiesInvalid(t *testing.T) {
 	cfg := config.Default()
-	cfg.DatabaseURL, cfg.SecretKey = "postgres://x", "0123456789abcdef0123456789abcdef"
+	cfg.DatabaseURL, cfg.SecretKey = "postgres://localhost/x", "0123456789abcdef0123456789abcdef"
 	cfg.TrustedProxies = []string{"zoraxy.local"}
 	if err := cfg.Validate(); err == nil {
 		t.Fatal("expected an error for a host name")

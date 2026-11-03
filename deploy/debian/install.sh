@@ -8,6 +8,12 @@
 #                                             # behind a reverse proxy (Zoraxy, nginx, ...) that
 #                                             # owns the public certificate for that domain
 #   sudo ./install.sh --binary ./rhis-remote  # install a binary you built yourself
+#   sudo ./install.sh --public-ip 203.0.113.4 # public address of the built-in TURN relay (behind NAT)
+#
+# A separate relay server (no database, no portal) joins an existing control server with a
+# one-time token from Settings > Servers in the portal:
+#
+#   sudo ./install.sh --role relay --control https://remote.rhis.nl --token rj_... [--relay-domain relay1.rhis.nl]
 #
 # All traffic is encrypted: Caddy terminates HTTPS on port 443 and the server itself only
 # listens on 127.0.0.1. Without --domain, Caddy's own internal CA issues the certificate;
@@ -27,6 +33,11 @@ CHANNEL="production"
 DOMAIN=""
 PROXY=""
 BINARY=""
+ROLE="all"
+CONTROL=""
+TOKEN=""
+RELAY_DOMAIN=""
+PUBLIC_IP=""
 # Choices from an earlier run; command-line options override them.
 if [[ -f /etc/rhis-remote/install.env ]]; then
   # shellcheck disable=SC1091
@@ -38,6 +49,11 @@ while [[ $# -gt 0 ]]; do
     --domain) DOMAIN="$2"; shift 2 ;;
     --behind-proxy) PROXY="$2"; shift 2 ;;
     --direct) PROXY=""; shift ;;
+    --role) ROLE="$2"; shift 2 ;;
+    --control) CONTROL="${2%/}"; shift 2 ;;
+    --token) TOKEN="$2"; shift 2 ;;
+    --relay-domain) RELAY_DOMAIN="$2"; shift 2 ;;
+    --public-ip) PUBLIC_IP="$2"; shift 2 ;;
     --channel) CHANNEL="$2"; shift 2 ;;
     --binary) BINARY="$(realpath "$2")"; shift 2 ;;
     -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
@@ -46,6 +62,11 @@ while [[ $# -gt 0 ]]; do
 done
 [[ $EUID -eq 0 ]] || { echo "Run as root (sudo)." >&2; exit 1; }
 [[ "$CHANNEL" == "production" || "$CHANNEL" == "test" ]] || { echo "--channel must be production or test" >&2; exit 2; }
+[[ "$ROLE" == "all" || "$ROLE" == "relay" ]] || { echo "--role must be all or relay" >&2; exit 2; }
+if [[ "$ROLE" == "relay" ]]; then
+  [[ "$CONTROL" == https://* ]] || { echo "--control must be the https:// address of the control server" >&2; exit 2; }
+  [[ -n "$TOKEN" || -f /etc/rhis-remote/config.yaml ]] || { echo "--token is required (Settings > Servers > Add relay server)" >&2; exit 2; }
+fi
 if [[ -n "$PROXY" ]]; then
   [[ -n "$DOMAIN" ]] || { echo "--behind-proxy needs --domain: the public name the proxy serves." >&2; exit 2; }
   # Comma or space separated IPs or CIDR ranges of the proxy.
@@ -62,8 +83,13 @@ say "Installing packages"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 # postgresql-common first, so its debconf script finds pg_lsclusters
-apt-get install -y -qq postgresql-common >/dev/null
-apt-get install -y -qq postgresql postgresql-client ca-certificates curl jq openssl osslsigncode caddy >/dev/null
+if [[ "$ROLE" == "relay" ]]; then
+  # A relay needs no database and no web server.
+  apt-get install -y -qq ca-certificates curl jq openssl >/dev/null
+else
+  apt-get install -y -qq postgresql-common >/dev/null
+  apt-get install -y -qq postgresql postgresql-client ca-certificates curl jq openssl osslsigncode caddy >/dev/null
+fi
 
 say "Creating user and folders"
 id rhis-remote >/dev/null 2>&1 || useradd --system --home /var/lib/rhis-remote --shell /usr/sbin/nologin rhis-remote
@@ -94,7 +120,37 @@ else
 fi
 /opt/rhis-remote/bin/rhis-remote version
 
-if [[ ! -f /etc/rhis-remote/config.yaml ]]; then
+if [[ "$ROLE" == "relay" && ! -f /etc/rhis-remote/config.yaml ]]; then
+  say "Creating the relay configuration"
+  tls_listen='":5349"'
+  [[ -n "$RELAY_DOMAIN" ]] && tls_listen='":443"'
+  cat > /etc/rhis-remote/config.yaml <<CFG
+# RHIS Remote relay server. It registers with the control server over HTTPS and needs
+# no database. Its name and roles are managed in the portal (Settings > Servers).
+roles: ["relay"]
+data_dir: "/var/lib/rhis-remote/data"
+node:
+  name: "$(hostname)"
+join:
+  control_url: "$CONTROL"
+  # One-time token: exchanged for a credential (stored in data_dir/node.json) on first start.
+  token: "$TOKEN"
+relay:
+  listen: ":3478"                 # TURN over UDP and TCP
+  tls_listen: $tls_listen
+  domain: "$RELAY_DOMAIN"         # with a domain: Let's Encrypt certificate and TURNS on 443
+  public_ip: "$PUBLIC_IP"         # empty: the address the control server sees
+  min_port: 49160
+  max_port: 49359
+update:
+  repo: "$REPO"
+  asset: "$ASSET"
+CFG
+  chown root:rhis-remote /etc/rhis-remote/config.yaml
+  chmod 0640 /etc/rhis-remote/config.yaml
+elif [[ "$ROLE" == "relay" ]]; then
+  :
+elif [[ ! -f /etc/rhis-remote/config.yaml ]]; then
   say "Creating database and configuration"
   dbpass="$(openssl rand -hex 24)"
   if ! runuser -u postgres -- psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='rhis_remote'" | grep -q 1; then
@@ -114,6 +170,10 @@ data_dir: "/var/lib/rhis-remote/data"
 # Never change secret_key: it decrypts the stored mail and backup passwords.
 secret_key: "$(/opt/rhis-remote/bin/rhis-remote gen-secret)"
 roles: ["all"]
+# Built-in TURN relay. Forward 3478 udp+tcp and udp 49160-49359 straight to this server
+# (not through an HTTP reverse proxy). public_ip: the address customers reach it on.
+relay:
+  public_ip: "$PUBLIC_IP"
 update:
   repo: "$REPO"
   asset: "$ASSET"
@@ -155,6 +215,22 @@ install -m 0644 "$SERVICE_FILE" /etc/systemd/system/rhis-remote.service
 systemctl daemon-reload
 systemctl enable --now rhis-remote >/dev/null
 systemctl restart rhis-remote
+
+if [[ "$ROLE" == "relay" ]]; then
+  for i in $(seq 1 20); do
+    curl -fsS http://127.0.0.1:8080/healthz >/dev/null 2>&1 && break
+    sleep 1
+  done
+  if curl -fsS http://127.0.0.1:8080/healthz >/dev/null 2>&1; then
+    # The token is single use; it has been exchanged for a credential by now.
+    sed -i -E 's|^(  token: ).*|\1""                    # used; the credential is in data_dir/node.json|' /etc/rhis-remote/config.yaml
+    say "Relay is running and registered with $CONTROL. It appears under Settings > Servers."
+    echo "Open these ports to this server: 3478 udp+tcp, 49160-49359 udp$([[ -n "$RELAY_DOMAIN" ]] && echo ', 443 tcp')."
+    exit 0
+  fi
+  echo "The relay did not come up. Check: journalctl -u rhis-remote -n 50" >&2
+  exit 1
+fi
 
 say "Setting up HTTPS with Caddy"
 ip="$(hostname -I | awk '{print $1}')"

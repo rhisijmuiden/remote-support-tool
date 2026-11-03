@@ -13,6 +13,7 @@ import { Users } from "./pages/Users";
 import { MailSettings } from "./pages/MailSettings";
 import { BackupSettings } from "./pages/BackupSettings";
 import { AuditLog } from "./pages/AuditLog";
+import { Servers } from "./pages/Servers";
 import { Account } from "./pages/Account";
 import { BuildDetail, Builds } from "./pages/Builds";
 import { AgentUpdates } from "./pages/AgentUpdates";
@@ -81,6 +82,7 @@ function Portal() {
           {admin && <Route path="/settings/mail" element={<MailSettings />} />}
           {admin && <Route path="/settings/backup" element={<BackupSettings />} />}
           {admin && <Route path="/settings/recording" element={<RecordingSettings />} />}
+          {admin && <Route path="/settings/servers" element={<Servers />} />}
           {admin && <Route path="/settings/audit" element={<AuditLog />} />}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

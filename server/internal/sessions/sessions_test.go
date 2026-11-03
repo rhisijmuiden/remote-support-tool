@@ -9,46 +9,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
-
-	"github.com/rhisijmuiden/remote-support-tool/server/internal/db"
+	"github.com/rhisijmuiden/remote-support-tool/server/internal/db/dbtest"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/settings"
 )
 
-// testService migrates a private schema so this package can run next to other
-// database tests in the same database.
+// testService uses its own database so it can run next to the backup tests, which dump
+// and restore the shared test database.
 func testService(t *testing.T) *Service {
-	url := os.Getenv("RHIS_TEST_DATABASE_URL")
-	if url == "" {
-		t.Skip("RHIS_TEST_DATABASE_URL not set")
-	}
-	ctx := context.Background()
-	admin, err := db.Open(ctx, url)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer admin.Close()
-	// A separate database, not a schema: the backup tests dump and restore the whole
-	// test database in parallel and would trip over extra schemas.
-	if _, err := admin.Exec(ctx, `DROP DATABASE IF EXISTS `+cfgDBName(t, url)+` WITH (FORCE)`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := admin.Exec(ctx, `CREATE DATABASE `+cfgDBName(t, url)); err != nil {
-		t.Fatal(err)
-	}
-	cfg, err := pgxpool.ParseConfig(url)
-	if err != nil {
-		t.Fatal(err)
-	}
-	cfg.ConnConfig.Database = cfgDBName(t, url)
-	pool, err := pgxpool.NewWithConfig(ctx, cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(pool.Close)
-	if err := db.Migrate(ctx, pool); err != nil {
-		t.Fatal(err)
-	}
+	pool := dbtest.Fresh(t, "sessions")
 	rec, err := NewStore(t.TempDir(), "0123456789abcdef0123456789abcdef")
 	if err != nil {
 		t.Fatal(err)
@@ -268,13 +236,4 @@ func TestCleanup(t *testing.T) {
 			t.Errorf("session %d: %s, want %s", id, got.Recording, want)
 		}
 	}
-}
-
-// cfgDBName is the name of this package's own test database.
-func cfgDBName(t *testing.T, url string) string {
-	cfg, err := pgxpool.ParseConfig(url)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return cfg.ConnConfig.Database + "_sessions"
 }

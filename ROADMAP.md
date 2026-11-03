@@ -11,7 +11,7 @@ Every phase has a tracking issue labelled `roadmap` on GitHub. Detailed tasks ar
 | 3. Quick support client | Planned | v0.3 | #6 |
 | 4. Session audit and recording | In progress | v0.4 | #7 |
 | 5. Client builder and central updates | In progress | v0.5 | #8 |
-| 6. Multi-server and scale-out | Planned | v0.6 | #9 |
+| 6. Multi-server and scale-out | In progress | v0.6 | #9 |
 | 7. Code signing and open-source release | Planned | v1.0 | #10 |
 
 ## 1. Server foundation (done)
@@ -78,17 +78,24 @@ Server and portal side are done; agents use them once the Windows agent from pha
 - [ ] Agent-side updater in the Windows agent (verify, download, swap, report), once the agent from phase 2 is merged
 - [ ] Push "update available" over the agent control channel instead of waiting for the next check
 
-## 6. Multi-server and scale-out
+## 6. Multi-server and scale-out (in progress)
 
-Start on one server, grow without reinstalling. The plan with the order of work is in [docs/multi-server.md](docs/multi-server.md).
+Start on one server, grow without reinstalling. Details in [docs/scaling.md](docs/scaling.md).
 
-- [ ] Run `gateway` and `relay` roles on separate servers, for example relays close to customers
-- [ ] NATS message bus between server roles
-- [ ] Multiple web/API nodes behind a load balancer, shared PostgreSQL
-- [ ] Health and status of every node in the portal
-- [ ] Signed server list updates for agents, so adding servers needs no new installers
-- [ ] Object storage (S3-compatible) for recordings, installers and agent files; scheduler leader election
-- [ ] Documentation for each step: 1 server, separate relays, full cluster
+- [x] `relay` role: TURN over UDP/TCP and TURNS (TLS, Let's Encrypt on 443) with time-limited credentials and key rotation
+- [x] Separate relay servers without a database: one-time join token from the portal, install with `install.sh --role relay`
+- [x] Relays follow the control server's version automatically
+- [x] Least-busy relay selection, drain for maintenance, remove to revoke
+- [x] Relays refuse to forward to private and loopback addresses (no access to the internal network)
+- [x] Message bus between servers: in-process on one server, NATS with mutual TLS in a cluster
+- [x] Multiple control servers on a shared PostgreSQL; backups and cleanup run on one elected leader with automatic failover
+- [x] Servers page in the portal: status, roles, version, load and heartbeat of every server
+- [x] Encryption enforced between all servers (HTTPS, NATS mTLS, PostgreSQL TLS)
+- [x] Documentation for each step: 1 server, separate relays, full cluster; reverse proxy (Zoraxy) notes
+- [ ] Separate `gateway` servers for agent connections, with signaling routed over NATS (with phase 2)
+- [ ] Region-aware relay selection (pick a relay close to the customer)
+- [ ] Ready-made NATS setup in the installer
+- [ ] Signed server list updates for agents over the control channel, so adding or moving servers needs no new installers
 
 ## 7. Code signing and open-source release
 

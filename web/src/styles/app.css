@@ -200,6 +200,11 @@ input[type="range"] { accent-color: var(--koraal); width: 100%; }
   .grid-detail, .tiles.tiles-3 { grid-template-columns: 1fr; }
   .bar-row { grid-template-columns: 100px minmax(0, 1fr) 32px; }
 }
+/* servers */
+td .sub.warn-text { color: var(--warn); font-weight: 600; }
+.steps { margin: 0; padding-left: 1.2rem; display: grid; gap: 8px; font-size: 0.9rem; }
+.steps strong { font-weight: 700; }
+pre.cmd { white-space: pre-wrap; word-break: break-all; max-height: none; user-select: all; }
 /* sessions and recordings */
 .pill.rec { color: var(--koraal); background: var(--koraal-soft); }
 .pill.rec::before { animation: rec-blink 1.2s infinite; }

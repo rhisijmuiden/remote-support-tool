@@ -17,7 +17,6 @@ import (
 	"math/big"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -31,41 +30,12 @@ import (
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/agentupdate"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/builder"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/codesign"
-	"github.com/rhisijmuiden/remote-support-tool/server/internal/db"
+	"github.com/rhisijmuiden/remote-support-tool/server/internal/db/dbtest"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/secret"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/settings"
 )
 
-// testDB gives this package its own database next to RHIS_TEST_DATABASE_URL, so it can run
-// in parallel with the backup tests (which dump and restore their whole database).
-func testDB(t *testing.T) *pgxpool.Pool {
-	raw := os.Getenv("RHIS_TEST_DATABASE_URL")
-	if raw == "" {
-		t.Skip("RHIS_TEST_DATABASE_URL not set")
-	}
-	ctx := context.Background()
-	admin, err := db.Open(ctx, raw)
-	if err != nil {
-		t.Fatal(err)
-	}
-	u, _ := url.Parse(raw)
-	name := strings.TrimPrefix(u.Path, "/") + "_builder"
-	admin.Exec(ctx, `DROP DATABASE IF EXISTS `+name+` WITH (FORCE)`)
-	if _, err := admin.Exec(ctx, `CREATE DATABASE `+name); err != nil {
-		t.Fatal(err)
-	}
-	admin.Close()
-	u.Path = "/" + name
-	pool, err := db.Open(ctx, u.String())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := db.Migrate(ctx, pool); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(pool.Close)
-	return pool
-}
+func testDB(t *testing.T) *pgxpool.Pool { return dbtest.Fresh(t, "builder") }
 
 // windowsExe cross-compiles a tiny Windows program, so signing runs on a real PE file.
 func windowsExe(t *testing.T) []byte {
