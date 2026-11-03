@@ -14,6 +14,9 @@ import { MailSettings } from "./pages/MailSettings";
 import { BackupSettings } from "./pages/BackupSettings";
 import { AuditLog } from "./pages/AuditLog";
 import { Account } from "./pages/Account";
+import { BuildDetail, Builds } from "./pages/Builds";
+import { AgentUpdates } from "./pages/AgentUpdates";
+import { CodeSigning } from "./pages/CodeSigning";
 
 export function App() {
   const { t } = useTranslation();
@@ -51,7 +54,11 @@ export function App() {
           <Route path="/" element={<Dashboard />} />
           <Route path="/devices" element={<Devices />} />
           <Route path="/customers" element={<Customers />} />
+          <Route path="/builds" element={<Builds />} />
+          <Route path="/builds/:id" element={<BuildDetail />} />
           <Route path="/account" element={<Account />} />
+          {admin && <Route path="/settings/agent-updates" element={<AgentUpdates />} />}
+          {admin && <Route path="/settings/codesign" element={<CodeSigning />} />}
           {admin && <Route path="/settings/users" element={<Users />} />}
           {admin && <Route path="/settings/mail" element={<MailSettings />} />}
           {admin && <Route path="/settings/backup" element={<BackupSettings />} />}
