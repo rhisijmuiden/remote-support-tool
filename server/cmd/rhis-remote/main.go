@@ -25,6 +25,7 @@ import (
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/db"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/mail"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/secret"
+	"github.com/rhisijmuiden/remote-support-tool/server/internal/sessions"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/settings"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/update"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/version"
@@ -84,14 +85,19 @@ func serve(cfgPath string) error {
 		return err
 	}
 	store := &settings.Store{DB: pool}
+	recStore, err := sessions.NewStore(cfg.DataDir, cfg.SecretKey)
+	if err != nil {
+		return err
+	}
 	a := &api.API{
-		Cfg:    &cfg,
-		DB:     pool,
-		Auth:   &auth.Service{DB: pool, SecureCookie: strings.HasPrefix(cfg.PublicURL, "https://")},
-		Audit:  &audit.Log{DB: pool},
-		Mail:   &mail.Service{Store: store, Box: box},
-		Backup: &backup.Service{DB: pool, Store: store, Box: box, DatabaseURL: cfg.DatabaseURL, DataDir: cfg.DataDir},
-		Update: &update.Service{Store: store, APIURL: cfg.Update.APIURL, Repo: cfg.Update.Repo, Asset: cfg.Update.Asset, Token: cfg.Update.Token},
+		Cfg:      &cfg,
+		DB:       pool,
+		Auth:     &auth.Service{DB: pool, SecureCookie: strings.HasPrefix(cfg.PublicURL, "https://")},
+		Audit:    &audit.Log{DB: pool},
+		Mail:     &mail.Service{Store: store, Box: box},
+		Backup:   &backup.Service{DB: pool, Store: store, Box: box, DatabaseURL: cfg.DatabaseURL, DataDir: cfg.DataDir},
+		Sessions: &sessions.Service{DB: pool, Store: store, Rec: recStore},
+		Update:   &update.Service{Store: store, APIURL: cfg.Update.APIURL, Repo: cfg.Update.Repo, Asset: cfg.Update.Asset, Token: cfg.Update.Token},
 		Restart: func() {
 			slog.Info("restarting after update")
 			stop()
@@ -106,6 +112,20 @@ func serve(cfgPath string) error {
 			slog.Error("backup schedule", "err", err)
 		}
 		defer a.Scheduler.Stop()
+		go func() {
+			t := time.NewTicker(time.Hour)
+			defer t.Stop()
+			for {
+				if err := a.Sessions.Cleanup(ctx); err != nil && ctx.Err() == nil {
+					slog.Error("session cleanup", "err", err)
+				}
+				select {
+				case <-ctx.Done():
+					return
+				case <-t.C:
+				}
+			}
+		}()
 	}
 
 	mux := http.NewServeMux()
