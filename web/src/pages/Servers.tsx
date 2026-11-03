@@ -153,7 +153,7 @@ export function Servers() {
                     )}
                   </td>
                   <td>
-                    <span className="mono">{n.version || "?"}</span>
+                    <span className="mono" style={{ whiteSpace: "nowrap" }}>{n.version || "?"}</span>
                     {nodes.data && n.version && n.version !== nodes.data.version && <span className="sub warn-text">{t("servers.version_differs")}</span>}
                   </td>
                   <td>
