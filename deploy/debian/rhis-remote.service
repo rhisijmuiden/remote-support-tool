@@ -1,0 +1,30 @@
+[Unit]
+Description=RHIS Remote server
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=rhis-remote
+Group=rhis-remote
+ExecStart=/opt/rhis-remote/bin/rhis-remote serve --config /etc/rhis-remote/config.yaml
+# The server restarts itself after an update from the portal; systemd starts it again.
+Restart=always
+RestartSec=2
+WorkingDirectory=/var/lib/rhis-remote
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+ReadWritePaths=/var/lib/rhis-remote /opt/rhis-remote/bin
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,64 @@
+import { useEffect, useState } from "react";
+import { Navigate, Route, Routes } from "react-router-dom";
+import { useTranslation } from "react-i18next";
+import { api, ApiError, Meta, User } from "./api";
+import { setLanguage } from "./i18n";
+import { SessionContext } from "./session";
+import { Layout } from "./components/Layout";
+import { Login, Setup } from "./pages/Auth";
+import { Dashboard } from "./pages/Dashboard";
+import { Devices } from "./pages/Devices";
+import { Customers } from "./pages/Customers";
+import { Users } from "./pages/Users";
+import { MailSettings } from "./pages/MailSettings";
+import { BackupSettings } from "./pages/BackupSettings";
+import { AuditLog } from "./pages/AuditLog";
+import { Account } from "./pages/Account";
+
+export function App() {
+  const { t } = useTranslation();
+  const [meta, setMeta] = useState<Meta | null>(null);
+  const [user, setUser] = useState<User | null | undefined>(undefined);
+
+  useEffect(() => {
+    api.get<Meta>("/meta").then((m) => {
+      setMeta(m);
+      document.title = m.product_name;
+    });
+    api.get<User>("/me").then(setUser, (e) => {
+      if (e instanceof ApiError && e.status === 401) setUser(null);
+      else setUser(null);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (user) setLanguage(user.language);
+  }, [user]);
+
+  if (!meta || user === undefined) return <div className="empty">{t("common.loading")}</div>;
+  if (!user) {
+    return meta.setup_required ? (
+      <Setup meta={meta} onDone={(u) => (setMeta({ ...meta, setup_required: false }), setUser(u))} />
+    ) : (
+      <Login meta={meta} onDone={setUser} />
+    );
+  }
+  const admin = user.role === "admin";
+  return (
+    <SessionContext.Provider value={{ user, meta, setUser }}>
+      <Layout>
+        <Routes>
+          <Route path="/" element={<Dashboard />} />
+          <Route path="/devices" element={<Devices />} />
+          <Route path="/customers" element={<Customers />} />
+          <Route path="/account" element={<Account />} />
+          {admin && <Route path="/settings/users" element={<Users />} />}
+          {admin && <Route path="/settings/mail" element={<MailSettings />} />}
+          {admin && <Route path="/settings/backup" element={<BackupSettings />} />}
+          {admin && <Route path="/settings/audit" element={<AuditLog />} />}
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </Layout>
+    </SessionContext.Provider>
+  );
+}
