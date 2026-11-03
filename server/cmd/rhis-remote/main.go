@@ -29,6 +29,7 @@ import (
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/mail"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/relay"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/secret"
+	"github.com/rhisijmuiden/remote-support-tool/server/internal/sessions"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/settings"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/update"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/version"
@@ -139,16 +140,21 @@ func serve(cfgPath string) error {
 		}
 	}()
 
+	recStore, err := sessions.NewStore(cfg.DataDir, cfg.SecretKey)
+	if err != nil {
+		return err
+	}
 	a := &api.API{
-		Cfg:     &cfg,
-		DB:      pool,
-		Auth:    &auth.Service{DB: pool, SecureCookie: strings.HasPrefix(cfg.PublicURL, "https://")},
-		Audit:   &audit.Log{DB: pool},
-		Mail:    &mail.Service{Store: store, Box: box},
-		Backup:  &backup.Service{DB: pool, Store: store, Box: box, DatabaseURL: cfg.DatabaseURL, DataDir: cfg.DataDir},
-		Update:  &update.Service{Store: store, APIURL: cfg.Update.APIURL, Repo: cfg.Update.Repo, Asset: cfg.Update.Asset, Token: cfg.Update.Token},
-		Cluster: reg,
-		Bus:     bus,
+		Cfg:      &cfg,
+		DB:       pool,
+		Auth:     &auth.Service{DB: pool, SecureCookie: strings.HasPrefix(cfg.PublicURL, "https://")},
+		Audit:    &audit.Log{DB: pool},
+		Mail:     &mail.Service{Store: store, Box: box},
+		Backup:   &backup.Service{DB: pool, Store: store, Box: box, DatabaseURL: cfg.DatabaseURL, DataDir: cfg.DataDir},
+		Sessions: &sessions.Service{DB: pool, Store: store, Rec: recStore},
+		Update:   &update.Service{Store: store, APIURL: cfg.Update.APIURL, Repo: cfg.Update.Repo, Asset: cfg.Update.Asset, Token: cfg.Update.Token},
+		Cluster:  reg,
+		Bus:      bus,
 		Restart: func() {
 			slog.Info("restarting after update")
 			stop()
@@ -165,13 +171,24 @@ func serve(cfgPath string) error {
 				slog.Error("backup schedule", "err", err)
 			}
 		})
-		// In a cluster only one server runs the scheduled backups.
+		// In a cluster only one server runs the scheduled jobs (backups, cleanup).
 		go cluster.RunAsLeader(ctx, pool, cluster.LockScheduler, "scheduler", func(lctx context.Context) {
 			if err := sch.Start(lctx); err != nil {
 				slog.Error("backup schedule", "err", err)
 			}
-			<-lctx.Done()
-			sch.Stop()
+			defer sch.Stop()
+			t := time.NewTicker(time.Hour)
+			defer t.Stop()
+			for {
+				if err := a.Sessions.Cleanup(lctx); err != nil && lctx.Err() == nil {
+					slog.Error("session cleanup", "err", err)
+				}
+				select {
+				case <-lctx.Done():
+					return
+				case <-t.C:
+				}
+			}
 		})
 	}
 
@@ -254,7 +271,7 @@ func relayPublicIP(ctx context.Context, cfg *config.Config, observed string) (ne
 
 // serveRemote runs a server without a database: a relay that joined a control server.
 func serveRemote(ctx context.Context, stop context.CancelFunc, cfg *config.Config, ident *cluster.Identity) error {
-	rem := &cluster.Remote{Cfg: cfg, Self: ident, DataDir: cfg.DataDir, AllowInsecure: cfg.AllowInsecure}
+	rem := &cluster.Remote{Cfg: cfg, Self: ident, DataDir: cfg.DataDir, AllowInsecure: cfg.AllowInsecureHTTP}
 	upd := &update.Service{APIURL: cfg.Update.APIURL, Repo: cfg.Update.Repo, Asset: cfg.Update.Asset, Token: cfg.Update.Token}
 	var rl *relay.Server
 	if cfg.HasRole("relay") {

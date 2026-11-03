@@ -22,6 +22,7 @@ import (
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/cluster"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/config"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/mail"
+	"github.com/rhisijmuiden/remote-support-tool/server/internal/sessions"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/update"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/version"
 )
@@ -35,6 +36,7 @@ type API struct {
 	Backup    *backup.Service
 	Scheduler *backup.Scheduler
 	Update    *update.Service
+	Sessions  *sessions.Service
 	Cluster   *cluster.Registry
 	Bus       cluster.Bus
 	// Restart is called after an update has been installed.
@@ -53,11 +55,13 @@ type API struct {
 // Routes returns the /api router.
 func (a *API) Routes() http.Handler {
 	r := chi.NewRouter()
-	r.Use(middleware.RequestID, middleware.RealIP, middleware.Recoverer, csrf)
+	r.Use(middleware.RequestID, trustedProxyIP, middleware.Recoverer, csrf)
 	r.Get("/meta", a.meta)
 	r.Post("/setup", a.setup)
 	r.Post("/login", a.login)
 	r.Post("/logout", a.logout)
+	r.Get("/public/recordings/{token}", a.publicRecording)
+	r.Get("/public/recordings/{token}/video", a.publicVideo)
 	// Server-to-server: relays join with a one-time token, then authenticate heartbeats
 	// with their node credential.
 	r.Post("/cluster/join", a.clusterJoin)
@@ -71,6 +75,14 @@ func (a *API) Routes() http.Handler {
 		r.Get("/devices", a.devices)
 		r.Get("/customers", a.customers)
 		r.Get("/system/info", a.systemInfo)
+		r.Get("/sessions", a.listSessions)
+		r.Get("/sessions/export.csv", a.exportSessions)
+		r.Get("/sessions/{id}", a.getSession)
+		r.Get("/sessions/{id}/recording", a.getRecording)
+		r.Put("/sessions/{id}/recording/{seq}", a.putChunk)
+		r.Post("/sessions/{id}/recording/finish", a.finishRecording)
+		r.Post("/sessions/{id}/shares", a.createShare)
+		r.Delete("/sessions/{id}/shares/{share}", a.revokeShare)
 		r.Group(func(r chi.Router) {
 			r.Use(requireAdmin)
 			r.Get("/users", a.listUsers)
@@ -93,6 +105,9 @@ func (a *API) Routes() http.Handler {
 			r.Put("/system/channel", a.setChannel)
 			r.Post("/system/update", a.applyUpdate)
 			r.Get("/audit", a.auditLog)
+			r.Get("/settings/recording", a.getRecordingPolicy)
+			r.Put("/settings/recording", a.putRecordingPolicy)
+			r.Delete("/sessions/{id}/recording", a.deleteRecording)
 			r.Get("/cluster/nodes", a.clusterNodes)
 			r.Put("/cluster/nodes/{node}/drain", a.clusterDrain)
 			r.Delete("/cluster/nodes/{node}", a.clusterRemove)
@@ -153,6 +168,26 @@ func actor(r *http.Request) audit.Actor {
 		a.UserID, a.Email = u.ID, u.Email
 	}
 	return a
+}
+
+// trustedProxyIP takes the client address from X-Forwarded-For / X-Real-IP only when the
+// request comes from the local reverse proxy (Caddy on the same machine). Anyone else could
+// spoof these headers to dodge the login rate limit or fake the activity log.
+func trustedProxyIP(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host, _, err := net.SplitHostPort(r.RemoteAddr)
+		if ip := net.ParseIP(host); err == nil && ip != nil && ip.IsLoopback() {
+			fwd := r.Header.Get("X-Real-IP")
+			if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+				parts := strings.Split(xff, ",")
+				fwd = strings.TrimSpace(parts[len(parts)-1]) // the address the proxy itself saw
+			}
+			if net.ParseIP(fwd) != nil {
+				r.RemoteAddr = net.JoinHostPort(fwd, "0")
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // csrf requires a custom header on state-changing requests. Browsers cannot send it

@@ -40,7 +40,10 @@ type Config struct {
 		Token  string `yaml:"token"` // optional GitHub token (private repos / rate limits)
 		APIURL string `yaml:"api_url"`
 	} `yaml:"update"`
-	Branding struct {
+	// AllowInsecureHTTP permits serving plain HTTP on a non-loopback address. Off by default:
+	// passwords and session cookies must never cross the network unencrypted.
+	AllowInsecureHTTP bool `yaml:"allow_insecure_http"`
+	Branding          struct {
 		ProductName string `yaml:"product_name"`
 		CompanyName string `yaml:"company_name"`
 	} `yaml:"branding"`
@@ -48,9 +51,6 @@ type Config struct {
 	Cluster ClusterConfig `yaml:"cluster"`
 	Join    JoinConfig    `yaml:"join"`
 	Relay   RelayConfig   `yaml:"relay"`
-	// AllowInsecure disables the encryption checks for connections to other servers.
-	// Only meant for local development; never set it in production.
-	AllowInsecure bool `yaml:"allow_insecure"`
 }
 
 // NodeConfig names this server in the cluster overview.
@@ -96,8 +96,8 @@ type RelayConfig struct {
 
 func Default() Config {
 	var c Config
-	c.Listen = ":8080"
-	c.PublicURL = "http://localhost:8080"
+	c.Listen = "127.0.0.1:8080"
+	c.PublicURL = "https://localhost"
 	c.DataDir = "/var/lib/rhis-remote"
 	c.Roles = []string{"all"}
 	c.Update.Repo = "rhisijmuiden/remote-support-tool"
@@ -189,6 +189,12 @@ func (c *Config) Validate() error {
 		if len(c.SecretKey) < 32 {
 			return errors.New("secret_key must be at least 32 characters")
 		}
+		if c.TLS.CertFile == "" && !c.AllowInsecureHTTP && !isLoopback(c.Listen) {
+			return fmt.Errorf("listen %q would serve plain HTTP on the network: listen on 127.0.0.1 behind the HTTPS proxy (Caddy), set tls.cert_file and tls.key_file, or set allow_insecure_http: true for a lab setup", c.Listen)
+		}
+		if !strings.HasPrefix(c.PublicURL, "https://") && !c.AllowInsecureHTTP {
+			return fmt.Errorf("public_url must start with https:// (got %q); set allow_insecure_http: true only for a lab setup", c.PublicURL)
+		}
 	} else {
 		if c.Join.ControlURL == "" {
 			return errors.New("join.control_url is required on a server without a database")
@@ -202,7 +208,7 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("relay.public_ip %q is not an IP address", c.Relay.PublicIP)
 		}
 	}
-	if !c.AllowInsecure {
+	if !c.AllowInsecureHTTP {
 		if err := c.checkEncryption(); err != nil {
 			return fmt.Errorf("%w (all traffic between servers must be encrypted)", err)
 		}
@@ -267,6 +273,18 @@ func (c *Config) NeedsDatabase() bool {
 		}
 	}
 	return false
+}
+
+func isLoopback(listen string) bool {
+	host, _, err := net.SplitHostPort(listen)
+	if err != nil {
+		return false
+	}
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 func (c *Config) HasRole(r string) bool {

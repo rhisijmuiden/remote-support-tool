@@ -1,9 +1,10 @@
 # RHIS Remote server configuration. The installer fills this in for you.
-listen: "127.0.0.1:8080"          # behind Caddy; use ":8080" to reach it directly
+listen: "127.0.0.1:8080"          # only reachable through Caddy (HTTPS on 443)
 public_url: "https://remote.example.com"
 database_url: "postgres://rhis_remote:CHANGE_ME@localhost/rhis_remote?sslmode=disable"
 data_dir: "/var/lib/rhis-remote/data"
-secret_key: "CHANGE_ME"           # rhis-remote gen-secret; never change it later (it decrypts stored passwords)
+secret_key: "CHANGE_ME"           # rhis-remote gen-secret; never change it later (it decrypts stored passwords and session recordings)
+# allow_insecure_http: false      # never true in production: plain HTTP exposes passwords and cookies
 roles: ["all"]                    # web, api, scheduler; more roles (gateway, relay) arrive with the agent
 update:
   repo: "rhisijmuiden/remote-support-tool"

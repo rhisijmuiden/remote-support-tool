@@ -82,12 +82,14 @@ export function Layout({ children }: { children: ReactNode }) {
         {nav("/", "dashboard", t("nav.dashboard"))}
         {nav("/devices", "devices", t("nav.devices"))}
         {nav("/customers", "customers", t("nav.customers"))}
+        {nav("/sessions", "sessions", t("nav.sessions"))}
         {admin && (
           <>
             <div className="grp">{t("nav.group_settings")}</div>
             {nav("/settings/users", "users", t("nav.users"))}
             {nav("/settings/mail", "mail", t("nav.mail"))}
             {nav("/settings/backup", "backup", t("nav.backup"))}
+            {nav("/settings/recording", "record", t("nav.recording"))}
             {nav("/settings/servers", "server", t("nav.servers"))}
             {nav("/settings/audit", "audit", t("nav.audit"))}
           </>
