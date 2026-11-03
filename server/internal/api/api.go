@@ -17,10 +17,13 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/agents"
+	"github.com/rhisijmuiden/remote-support-tool/server/internal/agentupdate"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/audit"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/auth"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/backup"
+	"github.com/rhisijmuiden/remote-support-tool/server/internal/builder"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/cluster"
+	"github.com/rhisijmuiden/remote-support-tool/server/internal/codesign"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/config"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/mail"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/sessions"
@@ -37,7 +40,10 @@ type API struct {
 	Backup    *backup.Service
 	Scheduler *backup.Scheduler
 	Update    *update.Service
-	Agents    *agents.Service // nil when this server does not run the gateway role
+	Builder   *builder.Service
+	Agents    *agentupdate.Service
+	Gateway   *agents.Service // nil when this server does not run the gateway role
+	CodeSign  *codesign.Service
 	Sessions  *sessions.Service
 	Cluster   *cluster.Registry
 	Bus       cluster.Bus
@@ -77,9 +83,10 @@ func (a *API) Routes() http.Handler {
 		r.Get("/devices", a.devices)
 		r.Get("/customers", a.customers)
 		r.Get("/system/info", a.systemInfo)
-		if a.Agents != nil {
-			a.Agents.PortalRoutes(r)
+		if a.Gateway != nil {
+			a.Gateway.PortalRoutes(r)
 		}
+		a.builderRoutes(r)
 		r.Get("/sessions", a.listSessions)
 		r.Get("/sessions/export.csv", a.exportSessions)
 		r.Get("/sessions/{id}", a.getSession)

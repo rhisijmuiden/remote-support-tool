@@ -88,7 +88,7 @@ if [[ "$ROLE" == "relay" ]]; then
   apt-get install -y -qq ca-certificates curl jq openssl >/dev/null
 else
   apt-get install -y -qq postgresql-common >/dev/null
-  apt-get install -y -qq postgresql postgresql-client ca-certificates curl jq openssl caddy >/dev/null
+  apt-get install -y -qq postgresql postgresql-client ca-certificates curl jq openssl osslsigncode caddy >/dev/null
 fi
 
 say "Creating user and folders"

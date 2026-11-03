@@ -65,6 +65,104 @@ export type UpdateStatus = {
   check_error?: string;
 };
 
+/** upload sends a file as the raw request body (logos, agent executables). */
+export async function upload<T>(method: "PUT" | "POST", path: string, body: Blob, contentType: string): Promise<T> {
+  const res = await fetch("/api" + path, {
+    method,
+    credentials: "same-origin",
+    headers: { "X-Requested-With": "rhis-remote", "Content-Type": contentType },
+    body,
+  });
+  if (res.status === 204) return undefined as T;
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new ApiError(res.status, data.error ?? "internal", data.detail);
+  return data as T;
+}
+
+export type Customer = { id: number; name: string; devices: number; online: number };
+
+export type Channel = "production" | "test";
+export type BuildLink = {
+  id: number;
+  file_id: number;
+  expires_at: string;
+  max_downloads: number | null;
+  downloads: number;
+  revoked: boolean;
+  active: boolean;
+  created_at: string;
+};
+export type BuildFile = {
+  id: number;
+  build_id: number;
+  agent_version: string;
+  arch: "amd64" | "arm64";
+  file_name: string;
+  size_bytes: number;
+  sha256: string;
+  signed: boolean;
+  created_at: string;
+  links: BuildLink[];
+};
+export type Build = {
+  id: number;
+  name: string;
+  customer_id: number | null;
+  customer: string | null;
+  mode: "install" | "quick";
+  product_name: string;
+  company_name: string;
+  accent_color: string;
+  has_logo: boolean;
+  servers: string[];
+  channel: Channel;
+  revoked: boolean;
+  created_at: string;
+  updated_at: string;
+  files?: BuildFile[];
+};
+export type AgentRelease = {
+  id: number;
+  product: "agent" | "quick";
+  version: string;
+  os: string;
+  arch: "amd64" | "arm64";
+  channel: Channel;
+  size_bytes: number;
+  sha256: string;
+  source: "github" | "upload";
+  notes: string;
+  released_at: string;
+  created_at: string;
+};
+export type UpdatePolicy = { enabled: boolean; production_version: string; test_version: string; rollout_percent: number };
+export type CustomerOverride = { customer_id: number; customer: string; mode: "off" | "pin"; version: string; updated_at: string };
+export type AgentOverview = {
+  public_key: string;
+  fingerprint: string;
+  versions: { version: string; devices: number; online: number }[];
+  events: {
+    at: string;
+    device_id: number | null;
+    hostname: string | null;
+    from_version: string | null;
+    to_version: string;
+    status: "offered" | "downloaded" | "installed" | "failed";
+    error: string | null;
+  }[];
+};
+export type CodesignStatus = {
+  mode: "" | "pfx" | "command";
+  command: string;
+  timestamp_url: string;
+  has_pfx: boolean;
+  subject: string;
+  issuer: string;
+  not_after: string;
+  thumbprint: string;
+  tool: string;
+  ready: boolean;
+};
 export type RecordingStatus = "none" | "recording" | "complete" | "incomplete" | "deleted";
 export type RemoteSession = {
   id: number;

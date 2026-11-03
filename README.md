@@ -15,6 +15,9 @@ Self-hosted remote support for Windows: remote control with unattended access, a
 - **Info and updates:** the Info button shows the version and checks GitHub releases. Switch between the production and test channel and install an update from the portal.
 - **Windows agent (unattended access):** a Rust agent that runs as a Windows service on Windows 11 and Windows Server. It connects out to the server over HTTPS/WSS on port 443, so it works behind any NAT router without port forwarding. The technician opens the device in the browser and gets the screen over WebRTC (H.264, encrypted with DTLS-SRTP), with TURN relays and an encrypted WebSocket relay over 443 as fallbacks. Mouse, keyboard, multiple monitors, Ctrl+Alt+Del, the sign-in and UAC screens, view-only mode and full screen are supported. The customer sees a banner while a session is active. See [Windows agent](#windows-agent) and [docs/agent-protocol.md](docs/agent-protocol.md).
 - **Session audit and recording:** every remote session is logged (technician, device, customer, time, duration, connection type, IP) with a timeline of what happened, filterable and exportable as CSV. Optional video recording (off, technician chooses, or always), stored encrypted on the server, with playback, download, retention and private share links for customers. See [docs/session-recording.md](docs/session-recording.md).
+- **Client builder:** branded installers and QuickSupport clients per customer, with your logo, colour, product name and an ordered list of `https://` servers. The customer's enrolment token is baked in; send the installer with an expiring download link, revoke a client or replace its token at any time. See [docs/client-builder.md](docs/client-builder.md).
+- **Central agent updates:** the server imports agent releases from GitHub (or an upload) and keeps every agent up to date, per channel, with pinned versions, per-customer exceptions and a staged rollout. Update manifests are signed with the server's own Ed25519 key, which every client carries.
+- **Code signing:** installers and agent updates are Authenticode-signed on the server, with an uploaded PFX certificate or a signing command for keys on a hardware token, HSM or cloud service.
 - **One binary, several roles, scales out:** `roles: ["all"]` on one machine, including a TURN relay for connections behind strict NAT. Add relay servers close to your customers with a one-time token from the portal (no database needed, they update themselves), or run several control servers on a shared PostgreSQL with NATS. All traffic between servers is encrypted. See [docs/scaling.md](docs/scaling.md).
 
 ## Screenshots
@@ -34,6 +37,9 @@ All screenshots are taken from a real `v0.1.0-test.1` server. The backups shown 
 | ![Remote session over WebRTC](docs/screenshots/agent-remote-webrtc.png) **Remote session, direct WebRTC connection** | ![Remote session over the HTTPS relay](docs/screenshots/agent-remote-relay.png) **Same session over the encrypted HTTPS relay** |
 | ![Agent sessions in the session log](docs/screenshots/sessions-agents.png) **Agent sessions in the session log** | |
 | ![Add a relay server](docs/screenshots/servers-add.png) **Add a relay server with a one-time token** | ![Servers in Dutch, dark theme](docs/screenshots/servers-nl-dark.png) **Servers, dark theme, Dutch** |
+| ![Client builder](docs/screenshots/client-builder.png) **Client builder** | ![Client details](docs/screenshots/client-builder-detail.png) **Client: branding, servers, installers and download links** |
+| ![Edit a client](docs/screenshots/client-builder-edit.png) **Logo, colour, type and server failover list** | ![Agent updates](docs/screenshots/agent-updates.png) **Agent updates: policy, staged rollout, releases** |
+| ![Code signing](docs/screenshots/code-signing.png) **Code signing** | ![Client in Dutch, dark theme](docs/screenshots/client-builder-detail-nl-dark.png) **Signed installer, dark theme, Dutch** |
 
 The device and remote session screenshots come from a real server with the agent running in its Linux test mode, which draws a synthetic screen; the Windows build captures the real desktop. The Servers screenshots show a real control server with a relay that joined with a token, plus one demo relay; the session screenshots use demo data; the recording in them was made by a real browser with the portal's recorder and played back from the encrypted store.
 
@@ -45,7 +51,7 @@ The device and remote session screenshots come from a real server with the agent
 | 2. Windows agent and connectivity (NAT traversal, WebRTC, relay) | In test (v0.2), Windows hardware test pending |
 | 3. Quick support client (no install, session code) | Planned |
 | 4. Session audit and recording | In test, including agent sessions |
-| 5. Client builder and signed central updates | Planned |
+| 5. Client builder and signed central updates | Server and portal in test; the agent's update client is next |
 | 6. Multi-server and scale-out (relays, NATS cluster) | Relays, cluster and Servers page in test |
 | 7. Code signing and open-source release | Planned |
 
