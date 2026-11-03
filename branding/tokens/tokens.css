@@ -1,0 +1,18 @@
+/* RHIS huisstijl: kleuren, type, ruimte en radius. Bron: brand/tokens.json */
+:root{
+  --nacht:#14213D; --koraal:#FF6B57; --lucht:#9CC3FF; --wolk:#F6F7FB;
+  --surface:#F6F7FB; --surface-raised:#FFFFFF; --ink:#14213D; --ink-muted:#4F5B73; --line:#DCE1EB;
+  --accent:var(--koraal); --accent-text:#B8392A;
+  --status-online:#1C8A57; --status-warning:#A86B00; --status-offline:#C23434;
+  --font-display:"Archivo",system-ui,sans-serif; --font-sans:"Archivo",system-ui,sans-serif;
+  --space-1:4px; --space-2:8px; --space-3:16px; --space-4:24px; --space-5:48px; --space-6:96px;
+  --radius-sm:6px; --radius-md:10px; --radius-lg:16px; --radius-pill:999px;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --surface:#0E1626; --surface-raised:#16213A; --ink:#EEF1F7; --ink-muted:#A3AEC4; --line:#26324D;
+  --accent-text:#FF8A78; --status-online:#4ACB8C; --status-warning:#F2B640; --status-offline:#FF7A7A; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --surface:#0E1626; --surface-raised:#16213A; --ink:#EEF1F7; --ink-muted:#A3AEC4; --line:#26324D;
+  --accent-text:#FF8A78; --status-online:#4ACB8C; --status-warning:#F2B640; --status-offline:#FF7A7A; color-scheme:dark}
+/* Koppen breed: font-stretch 125%, gewicht 800 */
+.rhis-display{font-family:var(--font-display);font-stretch:125%;font-weight:800}

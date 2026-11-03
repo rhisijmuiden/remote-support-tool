@@ -1,0 +1,12 @@
+# build output
+/bin/
+/dist/
+/server/internal/web/dist/*
+!/server/internal/web/dist/.gitkeep
+node_modules/
+/web/dist/
+# local config and data
+/config.local.yaml
+/data/
+*.env
+.DS_Store

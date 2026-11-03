@@ -1,0 +1,9 @@
+/* Archivo (SIL Open Font License), zelf gehost: geen verzoeken naar Google. */
+@font-face {
+  font-family: 'Archivo';
+  font-style: normal;
+  font-weight: 100 900;
+  font-stretch: 62% 125%;
+  font-display: swap;
+  src: url('archivo-latin.woff2') format('woff2');
+}
