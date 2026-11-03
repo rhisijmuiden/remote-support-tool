@@ -35,6 +35,8 @@ say() { printf '\n\033[1;38;2;255;107;87m==>\033[0m %s\n' "$*"; }
 say "Installing packages"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
+# postgresql-common first, so its debconf script finds pg_lsclusters
+apt-get install -y -qq postgresql-common >/dev/null
 apt-get install -y -qq postgresql postgresql-client ca-certificates curl jq openssl caddy >/dev/null
 
 say "Creating user and folders"
@@ -49,6 +51,7 @@ if [[ -n "$BINARY" ]]; then
   install -o rhis-remote -g rhis-remote -m 0755 "$BINARY" /opt/rhis-remote/bin/rhis-remote
 else
   tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+  SERVICE_FILE=""
   filter='[.[] | select(.draft|not)]'
   [[ "$CHANNEL" == "production" ]] && filter='[.[] | select((.draft|not) and (.prerelease|not))]'
   tag="$(curl -fsSL "https://api.github.com/repos/$REPO/releases?per_page=50" | jq -r "$filter | .[0].tag_name // empty")"
@@ -60,6 +63,8 @@ else
   (cd "$tmp" && grep " $ASSET\$" checksums.txt | sha256sum -c -)
   tar -xzf "$tmp/$ASSET" -C "$tmp"
   install -o rhis-remote -g rhis-remote -m 0755 "$tmp/rhis-remote" /opt/rhis-remote/bin/rhis-remote
+  # Use the service file from the same release as the binary.
+  SERVICE_FILE="$tmp/rhis-remote.service"
 fi
 /opt/rhis-remote/bin/rhis-remote version
 
@@ -101,11 +106,11 @@ fi
 
 say "Installing the service"
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [[ -f "$script_dir/rhis-remote.service" ]]; then
-  install -m 0644 "$script_dir/rhis-remote.service" /etc/systemd/system/rhis-remote.service
-else
-  curl -fsSL -o /etc/systemd/system/rhis-remote.service "https://raw.githubusercontent.com/$REPO/main/deploy/debian/rhis-remote.service"
+if [[ -z "${SERVICE_FILE:-}" || ! -f "$SERVICE_FILE" ]]; then
+  SERVICE_FILE="$script_dir/rhis-remote.service"
 fi
+[[ -f "$SERVICE_FILE" ]] || { echo "rhis-remote.service not found next to install.sh or in the release." >&2; exit 1; }
+install -m 0644 "$SERVICE_FILE" /etc/systemd/system/rhis-remote.service
 systemctl daemon-reload
 systemctl enable --now rhis-remote >/dev/null
 systemctl restart rhis-remote
