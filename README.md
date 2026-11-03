@@ -14,6 +14,9 @@ Self-hosted remote support for Windows: remote control with unattended access, a
 - **Backup and restore:** full and incremental backups of the database and data folder to FTP, FTPS (explicit or implicit) or SCP over SSH, on a schedule or by hand, optionally encrypted with [age](https://age-encryption.org). Retention keeps the newest N full backups. Restore works from the remote location, also on a fresh server.
 - **Info and updates:** the Info button shows the version and checks GitHub releases. Switch between the production and test channel and install an update from the portal.
 - **Session audit and recording:** every remote session is logged (technician, device, customer, time, duration, connection type, IP) with a timeline of what happened, filterable and exportable as CSV. Optional video recording (off, technician chooses, or always), stored encrypted on the server, with playback, download, retention and private share links for customers. See [docs/session-recording.md](docs/session-recording.md).
+- **Client builder:** branded installers and QuickSupport clients per customer, with your logo, colour, product name and an ordered list of `https://` servers. The customer's enrolment token is baked in; send the installer with an expiring download link, revoke a client or replace its token at any time. See [docs/client-builder.md](docs/client-builder.md).
+- **Central agent updates:** the server imports agent releases from GitHub (or an upload) and keeps every agent up to date, per channel, with pinned versions, per-customer exceptions and a staged rollout. Update manifests are signed with the server's own Ed25519 key, which every client carries.
+- **Code signing:** installers and agent updates are Authenticode-signed on the server, with an uploaded PFX certificate or a signing command for keys on a hardware token, HSM or cloud service.
 - **One binary, several roles, scales out:** `roles: ["all"]` on one machine, including a TURN relay for connections behind strict NAT. Add relay servers close to your customers with a one-time token from the portal (no database needed, they update themselves), or run several control servers on a shared PostgreSQL with NATS. All traffic between servers is encrypted. See [docs/scaling.md](docs/scaling.md).
 
 ## Screenshots
@@ -30,6 +33,9 @@ All screenshots are taken from a real `v0.1.0-test.1` server. The backups shown 
 | ![Share link](docs/screenshots/session-share.png) **Share a recording with a customer** | ![Customer share page](docs/screenshots/shared-recording-nl.png) **What the customer sees (Dutch)** |
 | ![Sessions in Dutch, dark theme](docs/screenshots/sessions-nl-dark.png) **Sessions, dark theme, Dutch** | ![Servers](docs/screenshots/servers.png) **Servers: control server and relays** |
 | ![Add a relay server](docs/screenshots/servers-add.png) **Add a relay server with a one-time token** | ![Servers in Dutch, dark theme](docs/screenshots/servers-nl-dark.png) **Servers, dark theme, Dutch** |
+| ![Client builder](docs/screenshots/client-builder.png) **Client builder** | ![Client details](docs/screenshots/client-builder-detail.png) **Client: branding, servers, installers and download links** |
+| ![Edit a client](docs/screenshots/client-builder-edit.png) **Logo, colour, type and server failover list** | ![Agent updates](docs/screenshots/agent-updates.png) **Agent updates: policy, staged rollout, releases** |
+| ![Code signing](docs/screenshots/code-signing.png) **Code signing** | ![Client in Dutch, dark theme](docs/screenshots/client-builder-detail-nl-dark.png) **Signed installer, dark theme, Dutch** |
 
 The Servers screenshots show a real control server with a relay that joined with a token, plus one demo relay; the session screenshots use demo data; the recording in them was made by a real browser with the portal's recorder and played back from the encrypted store.
 
@@ -41,7 +47,7 @@ The Servers screenshots show a real control server with a relay that joined with
 | 2. Windows agent and connectivity (NAT traversal, WebRTC, relay) | Next |
 | 3. Quick support client (no install, session code) | Planned |
 | 4. Session audit and recording | Server and portal in test; recording goes live with the Windows agent |
-| 5. Client builder and signed central updates | Planned |
+| 5. Client builder and signed central updates | Server and portal in test; the agent side of updates comes with the Windows agent |
 | 6. Multi-server and scale-out (relays, NATS cluster) | Relays, cluster and Servers page in test |
 | 7. Code signing and open-source release | Planned |
 

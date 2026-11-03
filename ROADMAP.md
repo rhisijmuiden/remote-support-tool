@@ -10,7 +10,7 @@ Every phase has a tracking issue labelled `roadmap` on GitHub. Detailed tasks ar
 | 2. Windows agent and connectivity | Next | v0.2 | #5 |
 | 3. Quick support client | Planned | v0.3 | #6 |
 | 4. Session audit and recording | In progress | v0.4 | #7 |
-| 5. Client builder and central updates | Planned | v0.5 | #8 |
+| 5. Client builder and central updates | In progress | v0.5 | #8 |
 | 6. Multi-server and scale-out | In progress | v0.6 | #9 |
 | 7. Code signing and open-source release | Planned | v1.0 | #10 |
 
@@ -64,13 +64,19 @@ Server and portal side are done; recording starts working end to end once the br
 - [ ] "This session is being recorded" banner on the Windows side (phase 2 agent)
 - [ ] Per-customer or per-device recording policy override
 
-## 5. Client builder and central updates
+## 5. Client builder and central updates (in progress)
 
-- [ ] Client builder in the portal: company logo, colors, product name and the list of servers the client connects to
-- [ ] Separate builds per customer, with the enrollment key baked in
-- [ ] The server is the central update source for all agents, with production and test channels
-- [ ] Signed update packages (Ed25519) that agents verify before installing
-- [ ] Build pipeline prepared for Authenticode signing, so a code signing certificate can be plugged in later (see phase 7)
+Server and portal side are done; agents use them once the Windows agent from phase 2 is in. Details in [docs/client-builder.md](docs/client-builder.md).
+
+- [x] Client builder in the portal: company logo, accent colour, product and company name, and an ordered failover list of servers (https only)
+- [x] Separate builds per customer with the enrolment token baked in; installer (unattended) and QuickSupport types; x64 and ARM64
+- [x] Expiring, revocable download links to send an installer to a customer; revoke a client or replace its token
+- [x] The server is the central update source for all agents: imports agent releases from GitHub or an upload, production and test channels
+- [x] Update policy: newest or pinned version per channel (also to roll back), per-customer exceptions, staged rollout percentage
+- [x] Signed update manifests (Ed25519, key created by the server and embedded in every client), checked against size and SHA-256
+- [x] Authenticode signing on the server: PFX certificate (osslsigncode) or a signing command for hardware tokens, HSMs and cloud signing
+- [ ] Agent-side updater in the Windows agent (verify, download, swap, report), once the agent from phase 2 is merged
+- [ ] Push "update available" over the agent control channel instead of waiting for the next check
 
 ## 6. Multi-server and scale-out (in progress)
 
@@ -89,9 +95,11 @@ Start on one server, grow without reinstalling. Details in [docs/scaling.md](doc
 - [ ] Separate `gateway` servers for agent connections, with signaling routed over NATS (with phase 2)
 - [ ] Region-aware relay selection (pick a relay close to the customer)
 - [ ] Ready-made NATS setup in the installer
+- [ ] Signed server list updates for agents over the control channel, so adding or moving servers needs no new installers
 
 ## 7. Code signing and open-source release
 
+- [x] Server-side Authenticode signing of installers and agent updates (phase 5)
 - [ ] Authenticode code signing certificate in the build pipeline for the agent, quick support client and installers
 - [ ] A brand-neutral open-source variant: name, logo and colors fully configurable, no RHIS defaults
 - [ ] Install and admin documentation, contribution guide and security policy

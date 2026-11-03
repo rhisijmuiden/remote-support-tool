@@ -15,15 +15,22 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
+
+	"github.com/rhisijmuiden/remote-support-tool/server/internal/agentupdate"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/api"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/audit"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/auth"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/backup"
+	"github.com/rhisijmuiden/remote-support-tool/server/internal/builder"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/cluster"
+	"github.com/rhisijmuiden/remote-support-tool/server/internal/codesign"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/config"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/db"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/mail"
@@ -100,6 +107,22 @@ func serve(cfgPath string) error {
 		return err
 	}
 	store := &settings.Store{DB: pool}
+	tmpDir := filepath.Join(cfg.DataDir, "tmp")
+	if err := os.MkdirAll(tmpDir, 0o700); err != nil {
+		return fmt.Errorf("data_dir: %w", err)
+	}
+	code := &codesign.Service{Store: store, Box: box, TempDir: tmpDir, Name: cfg.Branding.ProductName,
+		URL: cfg.PublicURL, Command: cfg.CodeSigning.Command}
+	signer, err := agentupdate.LoadSigner(ctx, store, box)
+	if err != nil {
+		return fmt.Errorf("agent update key: %w", err)
+	}
+	agentsRepo := cfg.Agents.Repo
+	if agentsRepo == "" {
+		agentsRepo = cfg.Update.Repo
+	}
+	agents := &agentupdate.Service{DB: pool, Store: store, Signer: signer, Code: code, DataDir: cfg.DataDir,
+		APIURL: cfg.Update.APIURL, Repo: agentsRepo, Token: cfg.Update.Token, Keep: cfg.Agents.Keep}
 
 	var bus cluster.Bus = cluster.NewLocalBus()
 	if cfg.Cluster.NATS.URL != "" {
@@ -151,6 +174,9 @@ func serve(cfgPath string) error {
 		Audit:    &audit.Log{DB: pool},
 		Mail:     &mail.Service{Store: store, Box: box},
 		Backup:   &backup.Service{DB: pool, Store: store, Box: box, DatabaseURL: cfg.DatabaseURL, DataDir: cfg.DataDir},
+		Builder:  &builder.Service{DB: pool, Box: box, Src: agents, DataDir: cfg.DataDir},
+		Agents:   agents,
+		CodeSign: code,
 		Sessions: &sessions.Service{DB: pool, Store: store, Rec: recStore},
 		Update:   &update.Service{Store: store, APIURL: cfg.Update.APIURL, Repo: cfg.Update.Repo, Asset: cfg.Update.Asset, Token: cfg.Update.Token},
 		Cluster:  reg,
@@ -177,6 +203,10 @@ func serve(cfgPath string) error {
 				slog.Error("backup schedule", "err", err)
 			}
 			defer sch.Stop()
+			// Agent releases are imported by the same single leader.
+			if every, err := time.ParseDuration(cfg.Agents.SyncInterval); err == nil && every > 0 {
+				go agents.RunSync(lctx, every)
+			}
 			t := time.NewTicker(time.Hour)
 			defer t.Stop()
 			for {
@@ -202,6 +232,15 @@ func serve(cfgPath string) error {
 	})
 	if cfg.HasRole("api") {
 		mux.Handle("/api/", http.StripPrefix("/api", a.Routes()))
+	}
+	if cfg.HasRole("update") {
+		// Agent endpoints authenticate with a device token, not a portal session.
+		ar := chi.NewRouter()
+		ar.Use(middleware.Recoverer)
+		h := &agentupdate.Handler{S: agents, Auth: agentupdate.SQLDeviceAuth{S: agents}, PublicURL: cfg.PublicURL}
+		ar.Route("/api/agent/v1", h.Mount)
+		mux.Handle("/api/agent/v1/", ar)
+		mux.HandleFunc("GET /d/{token}", a.PublicDownload)
 	}
 	if cfg.HasRole("web") {
 		mux.Handle("/", web.Handler())

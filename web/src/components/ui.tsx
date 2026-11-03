@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { ApiError } from "../api";
 import { Icon } from "./Icon";
 
-const technical = new Set(["mail_failed", "backup_target_failed", "update_failed", "internal"]);
+const technical = new Set(["mail_failed", "backup_target_failed", "update_failed", "internal", "agent_sync_failed", "codesign_failed"]);
 
 export function errorText(t: (k: string, o?: Record<string, unknown>) => string, e: unknown): string {
   if (e instanceof ApiError) {

@@ -27,6 +27,13 @@ const paths: Record<string, string> = {
   copy: "M8 8h12v12H8zM4 16V4h12",
   back: "M15 5l-7 7 7 7",
   auto: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 3v18",
+  builder: "M12 3l8 4.5v9L12 21l-8-4.5v-9zM12 12l8-4.5M12 12v9M12 12L4 7.5",
+  updates: "M20 12a8 8 0 0 1-14.3 4.9M4 12a8 8 0 0 1 14.3-4.9M18 3v4h-4M6 21v-4h4",
+  shield: "M12 3l8 3v6c0 4.5-3.4 8.1-8 9-4.6-.9-8-4.5-8-9V6zM9 12l2 2 4-4",
+  upload: "M12 20V9M7 14l5-5 5 5M4 4h16",
+  up: "M12 19V5M6 11l6-6 6 6",
+  down: "M12 5v14M6 13l6 6 6-6",
+  ban: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM5.6 5.6l12.8 12.8",
 };
 
 export function Icon({ name }: { name: keyof typeof paths | string }) {

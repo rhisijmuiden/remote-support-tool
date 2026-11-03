@@ -33,7 +33,7 @@ jobs:
         run: |
           sudo apt-get install -y -q postgresql-common
           sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
-          sudo apt-get install -y -q postgresql-client-17
+          sudo apt-get install -y -q postgresql-client-17 osslsigncode
           echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
       - name: Web
         working-directory: web
