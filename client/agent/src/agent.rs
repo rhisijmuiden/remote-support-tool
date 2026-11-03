@@ -15,38 +15,64 @@ use crate::config::AgentConfig;
 use crate::sysinfo;
 
 pub fn runtime() -> tokio::runtime::Runtime {
-    tokio::runtime::Builder::new_multi_thread().enable_all().build().expect("tokio runtime")
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .expect("tokio runtime")
 }
 
 /// Logs to stderr, and for the service and helper also to agent.log next to agent.json.
 pub fn init_logging(cfg_path: &Path, to_file: bool) {
     use tracing_subscriber::EnvFilter;
-    let filter = EnvFilter::try_from_env("RHIS_LOG").unwrap_or_else(|_| EnvFilter::new("info,webrtc=warn,rtc=warn"));
+    let filter = EnvFilter::try_from_env("RHIS_LOG")
+        .unwrap_or_else(|_| EnvFilter::new("info,webrtc=warn,rtc=warn"));
     let file = if to_file {
         cfg_path.parent().and_then(|d| {
             std::fs::create_dir_all(d).ok()?;
             let p = d.join("agent.log");
             // Keep the log small: start over above 5 MB.
-            if std::fs::metadata(&p).map(|m| m.len() > 5 << 20).unwrap_or(false) {
+            if std::fs::metadata(&p)
+                .map(|m| m.len() > 5 << 20)
+                .unwrap_or(false)
+            {
                 let _ = std::fs::rename(&p, d.join("agent.log.1"));
             }
-            std::fs::OpenOptions::new().create(true).append(true).open(p).ok()
+            std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(p)
+                .ok()
         })
     } else {
         None
     };
-    let b = tracing_subscriber::fmt().with_env_filter(filter).with_target(false);
+    let b = tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_target(false);
     match file {
-        Some(f) => b.with_ansi(false).with_writer(std::sync::Mutex::new(f)).init(),
+        Some(f) => b
+            .with_ansi(false)
+            .with_writer(std::sync::Mutex::new(f))
+            .init(),
         None => b.with_writer(std::io::stderr).init(),
     }
 }
 
 pub fn servers(cfg: &AgentConfig) -> Result<Vec<ServerConfig>> {
     let pin = Some(cfg.server_cert_sha256.as_str()).filter(|p| !p.is_empty());
-    let list: Vec<ServerConfig> =
-        cfg.servers.iter().filter_map(|s| ServerConfig::new(s, pin, cfg.insecure_dev).map_err(|e| warn!("{s}: {e}")).ok()).collect();
-    anyhow::ensure!(!list.is_empty(), "no usable server URL in the configuration");
+    let list: Vec<ServerConfig> = cfg
+        .servers
+        .iter()
+        .filter_map(|s| {
+            ServerConfig::new(s, pin, cfg.insecure_dev)
+                .map_err(|e| warn!("{s}: {e}"))
+                .ok()
+        })
+        .collect();
+    anyhow::ensure!(
+        !list.is_empty(),
+        "no usable server URL in the configuration"
+    );
     Ok(list)
 }
 
@@ -83,7 +109,10 @@ pub struct Agent {
 #[async_trait::async_trait]
 impl ControlHandler for Agent {
     async fn on_welcome(&self, device_id: i64, code: &str) {
-        info!("online: device {device_id}, ID {}", crate::format_code(code));
+        info!(
+            "online: device {device_id}, ID {}",
+            crate::format_code(code)
+        );
     }
 
     async fn on_session_request(&self, req: SessionRequest, server: ServerConfig) -> Decision {
@@ -92,7 +121,10 @@ impl ControlHandler for Agent {
         if self.active.lock().unwrap().len() >= 4 {
             return Decision::Reject("busy".into());
         }
-        info!("session {} requested by {} ({}, recording: {})", req.session_id, req.user_name, req.kind, req.recording);
+        info!(
+            "session {} requested by {} ({}, recording: {})",
+            req.session_id, req.user_name, req.kind, req.recording
+        );
         let id = req.session_id.clone();
         self.active.lock().unwrap().insert(id.clone());
         let active = self.active.clone();
@@ -104,10 +136,12 @@ impl ControlHandler for Agent {
                     request: req,
                     fps: 30.0,
                     product_name: self.cfg.product_name(),
+                    cancel: None,
                 };
                 let id = id.clone();
                 tokio::spawn(async move {
-                    match session::run(sc, Arc::from(rhis_core::platform::default_platform())).await {
+                    match session::run(sc, Arc::from(rhis_core::platform::default_platform())).await
+                    {
                         Ok(r) => info!("session ended: {r}"),
                         Err(e) => warn!("session failed: {e:#}"),
                     }
@@ -143,7 +177,6 @@ impl ControlHandler for Agent {
     }
 }
 
-
 /// Runs the control channel until the device token is refused.
 pub async fn run_control(agent: Arc<Agent>) -> Result<()> {
     let cc = control_config(&agent.cfg)?;
@@ -161,7 +194,12 @@ pub async fn run_control(agent: Arc<Agent>) -> Result<()> {
 
 pub async fn run_foreground(cfg: AgentConfig, _path: std::path::PathBuf) -> Result<()> {
     let token = cfg.token()?;
-    let agent = Arc::new(Agent { cfg, launcher: Launcher::InProcess, token, active: Default::default() });
+    let agent = Arc::new(Agent {
+        cfg,
+        launcher: Launcher::InProcess,
+        token,
+        active: Default::default(),
+    });
     tokio::select! {
         r = run_control(agent) => r,
         _ = tokio::signal::ctrl_c() => Ok(()),
@@ -169,6 +207,7 @@ pub async fn run_foreground(cfg: AgentConfig, _path: std::path::PathBuf) -> Resu
 }
 
 /// Encodes a session request for the helper's command line.
+#[cfg_attr(not(windows), allow(dead_code))]
 pub fn encode_request(req: &SessionRequest) -> String {
     B64.encode(serde_json::to_vec(req).unwrap())
 }
@@ -177,11 +216,24 @@ pub fn encode_request(req: &SessionRequest) -> String {
 pub fn run_helper(path: &Path, request: &str, server: &str) -> Result<()> {
     let cfg = AgentConfig::load(path)?.context("not enrolled")?;
     let req: SessionRequest = serde_json::from_slice(&B64.decode(request)?)?;
-    let server = servers(&cfg)?.into_iter().find(|s| s.url.as_str().trim_end_matches('/') == server.trim_end_matches('/')).context("unknown server")?;
+    let server = servers(&cfg)?
+        .into_iter()
+        .find(|s| s.url.as_str().trim_end_matches('/') == server.trim_end_matches('/'))
+        .context("unknown server")?;
     #[cfg(windows)]
     crate::win::sys::set_dpi_aware();
-    let sc = SessionConfig { server, token: cfg.token()?, request: req, fps: 30.0, product_name: cfg.product_name() };
-    let reason = runtime().block_on(session::run(sc, Arc::from(rhis_core::platform::default_platform())))?;
+    let sc = SessionConfig {
+        server,
+        token: cfg.token()?,
+        request: req,
+        fps: 30.0,
+        product_name: cfg.product_name(),
+        cancel: None,
+    };
+    let reason = runtime().block_on(session::run(
+        sc,
+        Arc::from(rhis_core::platform::default_platform()),
+    ))?;
     info!("session helper done: {reason}");
     Ok(())
 }

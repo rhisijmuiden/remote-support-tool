@@ -37,7 +37,8 @@ fn provider() -> Arc<CryptoProvider> {
 pub fn parse_pin(s: &str) -> Result<[u8; 32]> {
     let s = s.trim().trim_start_matches("sha256:").replace(':', "");
     let b = hex::decode(&s).context("certificate pin must be hex")?;
-    b.try_into().map_err(|_| anyhow!("certificate pin must be 32 bytes (SHA-256)"))
+    b.try_into()
+        .map_err(|_| anyhow!("certificate pin must be 32 bytes (SHA-256)"))
 }
 
 impl ServerConfig {
@@ -56,9 +57,16 @@ impl ServerConfig {
         url.set_path("");
         url.set_query(None);
         url.set_fragment(None);
-        let pin_sha256 = pin.filter(|p| !p.trim().is_empty()).map(parse_pin).transpose()?;
+        let pin_sha256 = pin
+            .filter(|p| !p.trim().is_empty())
+            .map(parse_pin)
+            .transpose()?;
         let tls = Arc::new(tls_config(pin_sha256)?);
-        Ok(Self { url, pin_sha256, tls })
+        Ok(Self {
+            url,
+            pin_sha256,
+            tls,
+        })
     }
 
     pub fn https(&self, path: &str) -> String {
@@ -67,7 +75,10 @@ impl ServerConfig {
 
     pub fn wss(&self, path: &str) -> String {
         let base = self.url.as_str().trim_end_matches('/');
-        let base = base.strip_prefix("https").map(|r| format!("wss{r}")).unwrap_or_else(|| base.replacen("http", "ws", 1));
+        let base = base
+            .strip_prefix("https")
+            .map(|r| format!("wss{r}"))
+            .unwrap_or_else(|| base.replacen("http", "ws", 1));
         format!("{base}{path}")
     }
 
@@ -88,10 +99,19 @@ impl ServerConfig {
     /// Opens a WebSocket to `path` with a bearer token.
     pub async fn connect_ws(&self, path: &str, token: &str) -> Result<Ws> {
         let mut req = self.wss(path).into_client_request()?;
-        req.headers_mut().insert("Authorization", HeaderValue::from_str(&format!("Bearer {token}"))?);
-        req.headers_mut()
-            .insert("User-Agent", HeaderValue::from_static(concat!("rhis-agent/", env!("CARGO_PKG_VERSION"))));
-        let connector = if self.url.scheme() == "https" { Some(Connector::Rustls(self.tls.clone())) } else { None };
+        req.headers_mut().insert(
+            "Authorization",
+            HeaderValue::from_str(&format!("Bearer {token}"))?,
+        );
+        req.headers_mut().insert(
+            "User-Agent",
+            HeaderValue::from_static(concat!("rhis-agent/", env!("CARGO_PKG_VERSION"))),
+        );
+        let connector = if self.url.scheme() == "https" {
+            Some(Connector::Rustls(self.tls.clone()))
+        } else {
+            None
+        };
         let (ws, _) = tokio::time::timeout(
             std::time::Duration::from_secs(20),
             tokio_tungstenite::connect_async_tls_with_config(req, None, true, connector),
@@ -113,11 +133,15 @@ fn is_loopback(url: &Url) -> bool {
 
 fn tls_config(pin: Option<[u8; 32]>) -> Result<rustls::ClientConfig> {
     let prov = provider();
-    let builder = rustls::ClientConfig::builder_with_provider(prov.clone()).with_safe_default_protocol_versions()?;
+    let builder = rustls::ClientConfig::builder_with_provider(prov.clone())
+        .with_safe_default_protocol_versions()?;
     let cfg = match pin {
         Some(pin) => builder
             .dangerous()
-            .with_custom_certificate_verifier(Arc::new(PinnedVerifier { pin, algs: prov.signature_verification_algorithms }))
+            .with_custom_certificate_verifier(Arc::new(PinnedVerifier {
+                pin,
+                algs: prov.signature_verification_algorithms,
+            }))
             .with_no_client_auth(),
         None => {
             let mut roots = rustls::RootCertStore::empty();
@@ -153,7 +177,9 @@ impl ServerCertVerifier for PinnedVerifier {
         if got == self.pin {
             Ok(ServerCertVerified::assertion())
         } else {
-            Err(rustls::Error::General("server certificate does not match the pinned SHA-256".into()))
+            Err(rustls::Error::General(
+                "server certificate does not match the pinned SHA-256".into(),
+            ))
         }
     }
 
@@ -196,8 +222,14 @@ mod tests {
     #[test]
     fn urls() {
         let c = ServerConfig::new("https://remote.example.com/some/path?x=1", None, false).unwrap();
-        assert_eq!(c.wss("/api/agent/v1/control"), "wss://remote.example.com/api/agent/v1/control");
-        assert_eq!(c.https("/api/agent/v1/enroll"), "https://remote.example.com/api/agent/v1/enroll");
+        assert_eq!(
+            c.wss("/api/agent/v1/control"),
+            "wss://remote.example.com/api/agent/v1/control"
+        );
+        assert_eq!(
+            c.https("/api/agent/v1/enroll"),
+            "https://remote.example.com/api/agent/v1/enroll"
+        );
         let d = ServerConfig::new("http://localhost:8080", None, true).unwrap();
         assert_eq!(d.wss("/x"), "ws://localhost:8080/x");
     }

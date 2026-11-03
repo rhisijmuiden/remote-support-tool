@@ -17,6 +17,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/agents"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/api"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/audit"
@@ -127,9 +129,12 @@ func serve(cfgPath string) error {
 		}
 		w.Write([]byte("ok"))
 	})
+	// One router for everything agents call; each role mounts its routes on it.
+	agentAPI := chi.NewRouter()
 	if a.Agents != nil {
-		mux.Handle("/api/agent/v1/", http.StripPrefix("/api/agent/v1", a.Agents.AgentRoutes()))
+		a.Agents.MountAgentRoutes(agentAPI)
 	}
+	mux.Handle("/api/agent/v1/", http.StripPrefix("/api/agent/v1", agentAPI))
 	if cfg.HasRole("api") {
 		mux.Handle("/api/", http.StripPrefix("/api", a.Routes()))
 	}

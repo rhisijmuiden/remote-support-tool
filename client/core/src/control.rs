@@ -68,7 +68,9 @@ impl std::fmt::Display for ControlError {
 /// Returns only when the server refuses the token.
 pub async fn run(cfg: ControlConfig, handler: Arc<dyn ControlHandler>) -> ControlError {
     let mut backoff = Duration::from_secs(1);
-    let servers: Vec<ServerConfig> = std::iter::once(cfg.server.clone()).chain(cfg.alternates.iter().cloned()).collect();
+    let servers: Vec<ServerConfig> = std::iter::once(cfg.server.clone())
+        .chain(cfg.alternates.iter().cloned())
+        .collect();
     let mut idx = 0;
     loop {
         let started = std::time::Instant::now();
@@ -94,10 +96,21 @@ fn is_unauthorized(e: &anyhow::Error) -> bool {
     matches!(e.downcast_ref::<tungstenite::Error>(), Some(tungstenite::Error::Http(r)) if r.status() == 401)
 }
 
-async fn connect_once(cfg: &ControlConfig, server: &ServerConfig, handler: Arc<dyn ControlHandler>) -> Result<(), ControlError> {
-    let ws = server.connect_ws("/api/agent/v1/control", &cfg.token).await.map_err(|e| {
-        if is_unauthorized(&e) { ControlError::Unauthorized } else { ControlError::Other(e) }
-    })?;
+async fn connect_once(
+    cfg: &ControlConfig,
+    server: &ServerConfig,
+    handler: Arc<dyn ControlHandler>,
+) -> Result<(), ControlError> {
+    let ws = server
+        .connect_ws("/api/agent/v1/control", &cfg.token)
+        .await
+        .map_err(|e| {
+            if is_unauthorized(&e) {
+                ControlError::Unauthorized
+            } else {
+                ControlError::Other(e)
+            }
+        })?;
     let (mut sink, mut stream) = ws.split();
     let (tx, mut rx) = mpsc::channel::<ClientMsg>(32);
     let mut user = handler.console_user();
@@ -191,13 +204,20 @@ pub struct Enrollment {
 
 /// Trades an enrollment token for a device token.
 pub async fn enroll(server: &ServerConfig, req: &EnrollRequest<'_>) -> Result<Enrollment> {
-    let resp = server.http_client()?.post(server.https("/api/agent/v1/enroll")).json(req).send().await?;
+    let resp = server
+        .http_client()?
+        .post(server.https("/api/agent/v1/enroll"))
+        .json(req)
+        .send()
+        .await?;
     let status = resp.status();
     if !status.is_success() {
         let body: serde_json::Value = resp.json().await.unwrap_or_default();
         let code = body["error"].as_str().unwrap_or("error").to_string();
         return Err(match code.as_str() {
-            "invalid_enroll_token" => anyhow!("the enrollment token is invalid, expired or used up"),
+            "invalid_enroll_token" => {
+                anyhow!("the enrollment token is invalid, expired or used up")
+            }
             "too_many_attempts" => anyhow!("too many failed attempts; try again in 15 minutes"),
             _ => anyhow!("enrollment failed: {status} {code}"),
         });

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { api, ApiError, Meta, User } from "./api";
 import { setLanguage } from "./i18n";
@@ -14,11 +14,13 @@ import { MailSettings } from "./pages/MailSettings";
 import { BackupSettings } from "./pages/BackupSettings";
 import { AuditLog } from "./pages/AuditLog";
 import { Account } from "./pages/Account";
+import { Remote } from "./pages/Remote";
 
 export function App() {
   const { t } = useTranslation();
   const [meta, setMeta] = useState<Meta | null>(null);
   const [user, setUser] = useState<User | null | undefined>(undefined);
+  const loc = useLocation();
 
   useEffect(() => {
     api.get<Meta>("/meta").then((m) => {
@@ -44,6 +46,16 @@ export function App() {
     );
   }
   const admin = user.role === "admin";
+  // The remote viewer uses the whole window, without the menu.
+  if (loc.pathname.startsWith("/session/")) {
+    return (
+      <SessionContext.Provider value={{ user, meta, setUser }}>
+        <Routes>
+          <Route path="/session/:sid" element={<Remote />} />
+        </Routes>
+      </SessionContext.Provider>
+    );
+  }
   return (
     <SessionContext.Provider value={{ user, meta, setUser }}>
       <Layout>

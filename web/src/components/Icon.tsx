@@ -19,6 +19,12 @@ const paths: Record<string, string> = {
   key: "M15 7a4 4 0 1 1-3.9 5H3v4h3v-2h2v2h3.1A4 4 0 0 1 15 7z",
   restore: "M3 12a9 9 0 1 0 3-6.7M3 4v5h5",
   plus: "M12 5v14M5 12h14",
+  connect: "M3 4h18v12H3zM8 20h8M12 16v4M9 10h6M12 7l3 3-3 3",
+  back: "M15 5l-7 7 7 7",
+  lock: "M6 11h12v9H6zM8.5 11V8a3.5 3.5 0 0 1 7 0v3",
+  eye: "M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12zM12 9.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5z",
+  fullscreen: "M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5",
+  copy: "M9 9h11v11H9zM5 15H4V4h11v1",
   auto: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 3v18",
 };
 

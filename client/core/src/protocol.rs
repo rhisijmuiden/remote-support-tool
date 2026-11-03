@@ -52,9 +52,15 @@ pub struct SessionRequest {
 /// Messages from the server on the control channel.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ServerMsg {
-    Welcome { device_id: i64, device_code: String, ping_interval: u64 },
+    Welcome {
+        device_id: i64,
+        device_code: String,
+        ping_interval: u64,
+    },
     SessionRequest(SessionRequest),
-    SessionCancel { session_id: String },
+    SessionCancel {
+        session_id: String,
+    },
     Ping,
     /// Any other message (for example `update_available`), passed on as JSON.
     Other(serde_json::Value),
@@ -140,15 +146,29 @@ pub enum Signal {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "t", rename_all = "snake_case")]
 pub enum InputEvent {
-    Move { x: f64, y: f64 },
-    Button { button: u8, down: bool },
-    Wheel { dx: f64, dy: f64 },
-    Key { code: String, down: bool },
+    Move {
+        x: f64,
+        y: f64,
+    },
+    Button {
+        button: u8,
+        down: bool,
+    },
+    Wheel {
+        dx: f64,
+        dy: f64,
+    },
+    Key {
+        code: String,
+        down: bool,
+    },
     /// Release every key and button that is still down (the viewer lost focus).
     ReleaseAll,
     /// Ctrl+Alt+Del.
     Cad,
-    Monitor { index: usize },
+    Monitor {
+        index: usize,
+    },
 }
 
 /// Flags byte of a relay video frame.
@@ -178,15 +198,32 @@ mod tests {
             }
             other => panic!("{other:?}"),
         }
-        assert!(matches!(ServerMsg::parse(r#"{"type":"update_available","version":"1"}"#).unwrap(), ServerMsg::Other(_)));
+        assert!(matches!(
+            ServerMsg::parse(r#"{"type":"update_available","version":"1"}"#).unwrap(),
+            ServerMsg::Other(_)
+        ));
     }
 
     #[test]
     fn signals_round_trip() {
-        let s: Signal = serde_json::from_str(r#"{"type":"input","event":{"t":"move","x":0.5,"y":0.25}}"#).unwrap();
-        assert_eq!(s, Signal::Input { event: InputEvent::Move { x: 0.5, y: 0.25 } });
+        let s: Signal =
+            serde_json::from_str(r#"{"type":"input","event":{"t":"move","x":0.5,"y":0.25}}"#)
+                .unwrap();
+        assert_eq!(
+            s,
+            Signal::Input {
+                event: InputEvent::Move { x: 0.5, y: 0.25 }
+            }
+        );
         let s: Signal = serde_json::from_str(r#"{"type":"ice","candidate":null}"#).unwrap();
-        assert_eq!(s, Signal::Ice { candidate: None, sdp_mid: None, sdp_mline_index: None });
+        assert_eq!(
+            s,
+            Signal::Ice {
+                candidate: None,
+                sdp_mid: None,
+                sdp_mline_index: None
+            }
+        );
         let s: Signal = serde_json::from_str(r#"{"type":"something_new"}"#).unwrap();
         assert_eq!(s, Signal::Unknown);
         let hello = serde_json::to_string(&ClientMsg::Pong).unwrap();

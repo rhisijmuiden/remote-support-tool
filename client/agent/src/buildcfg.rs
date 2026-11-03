@@ -100,7 +100,10 @@ mod tests {
 
     #[test]
     fn reads_trailer() {
-        let f = with_trailer(vec![0u8; 100], r#"{"v":1,"servers":["https://a.example"],"enroll_token":"t"}"#);
+        let f = with_trailer(
+            vec![0u8; 100],
+            r#"{"v":1,"servers":["https://a.example"],"enroll_token":"t"}"#,
+        );
         let c = read_from(&mut Cursor::new(f)).unwrap().unwrap();
         assert_eq!(c.servers, vec!["https://a.example"]);
         assert_eq!(c.enroll_token, "t");
