@@ -90,6 +90,7 @@ export function Layout({ children }: { children: ReactNode }) {
             {nav("/settings/mail", "mail", t("nav.mail"))}
             {nav("/settings/backup", "backup", t("nav.backup"))}
             {nav("/settings/recording", "record", t("nav.recording"))}
+            {nav("/settings/servers", "server", t("nav.servers"))}
             {nav("/settings/audit", "audit", t("nav.audit"))}
           </>
         )}
