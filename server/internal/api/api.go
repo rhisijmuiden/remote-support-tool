@@ -22,6 +22,7 @@ import (
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/backup"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/config"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/mail"
+	"github.com/rhisijmuiden/remote-support-tool/server/internal/sessions"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/update"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/version"
 )
@@ -36,6 +37,7 @@ type API struct {
 	Scheduler *backup.Scheduler
 	Update    *update.Service
 	Agents    *agents.Service // nil when this server does not run the gateway role
+	Sessions  *sessions.Service
 	// Restart is called after an update has been installed.
 	Restart func()
 
@@ -52,11 +54,13 @@ type API struct {
 // Routes returns the /api router.
 func (a *API) Routes() http.Handler {
 	r := chi.NewRouter()
-	r.Use(middleware.RequestID, middleware.RealIP, middleware.Recoverer, csrf)
+	r.Use(middleware.RequestID, trustedProxyIP(a.Cfg.IsTrustedProxy), middleware.Recoverer, csrf)
 	r.Get("/meta", a.meta)
 	r.Post("/setup", a.setup)
 	r.Post("/login", a.login)
 	r.Post("/logout", a.logout)
+	r.Get("/public/recordings/{token}", a.publicRecording)
+	r.Get("/public/recordings/{token}/video", a.publicVideo)
 	r.Group(func(r chi.Router) {
 		r.Use(a.requireUser)
 		r.Get("/me", a.me)
@@ -69,6 +73,14 @@ func (a *API) Routes() http.Handler {
 		if a.Agents != nil {
 			a.Agents.PortalRoutes(r)
 		}
+		r.Get("/sessions", a.listSessions)
+		r.Get("/sessions/export.csv", a.exportSessions)
+		r.Get("/sessions/{id}", a.getSession)
+		r.Get("/sessions/{id}/recording", a.getRecording)
+		r.Put("/sessions/{id}/recording/{seq}", a.putChunk)
+		r.Post("/sessions/{id}/recording/finish", a.finishRecording)
+		r.Post("/sessions/{id}/shares", a.createShare)
+		r.Delete("/sessions/{id}/shares/{share}", a.revokeShare)
 		r.Group(func(r chi.Router) {
 			r.Use(requireAdmin)
 			r.Get("/users", a.listUsers)
@@ -91,6 +103,9 @@ func (a *API) Routes() http.Handler {
 			r.Put("/system/channel", a.setChannel)
 			r.Post("/system/update", a.applyUpdate)
 			r.Get("/audit", a.auditLog)
+			r.Get("/settings/recording", a.getRecordingPolicy)
+			r.Put("/settings/recording", a.putRecordingPolicy)
+			r.Delete("/sessions/{id}/recording", a.deleteRecording)
 		})
 	})
 	return r
@@ -144,6 +159,52 @@ func actor(r *http.Request) audit.Actor {
 		a.UserID, a.Email = u.ID, u.Email
 	}
 	return a
+}
+
+// TrustedProxyIP is trustedProxyIP for routers outside this package (the agent API).
+func TrustedProxyIP(trusted func(net.IP) bool) func(http.Handler) http.Handler {
+	return trustedProxyIP(trusted)
+}
+
+// trustedProxyIP finds the real client address. Forwarding headers are only believed
+// from trusted proxies: the local Caddy (loopback) and any trusted_proxies in the config,
+// such as Zoraxy in front of it. X-Forwarded-For is walked from the right and the first
+// address that is not a trusted proxy is the client; anything left of it could be spoofed
+// by the client to dodge the login rate limit or fake the activity log.
+func trustedProxyIP(trusted func(net.IP) bool) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			host, _, err := net.SplitHostPort(r.RemoteAddr)
+			if err == nil && trusted(net.ParseIP(host)) {
+				if ip := forwardedClient(r, trusted); ip != nil {
+					r.RemoteAddr = net.JoinHostPort(ip.String(), "0")
+				}
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+func forwardedClient(r *http.Request, trusted func(net.IP) bool) net.IP {
+	var hops []string
+	for _, v := range r.Header.Values("X-Forwarded-For") {
+		hops = append(hops, strings.Split(v, ",")...)
+	}
+	if len(hops) == 0 {
+		return net.ParseIP(strings.TrimSpace(r.Header.Get("X-Real-IP")))
+	}
+	var last net.IP
+	for i := len(hops) - 1; i >= 0; i-- {
+		ip := net.ParseIP(strings.TrimSpace(hops[i]))
+		if ip == nil {
+			break // garbage: stop at the last address a trusted proxy vouched for
+		}
+		last = ip
+		if !trusted(ip) {
+			return ip
+		}
+	}
+	return last
 }
 
 // csrf requires a custom header on state-changing requests. Browsers cannot send it

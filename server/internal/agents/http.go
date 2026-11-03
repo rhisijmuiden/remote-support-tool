@@ -37,8 +37,8 @@ func (s *Service) MountAgentRoutes(r chi.Router) {
 func (s *Service) PortalRoutes(r chi.Router) {
 	r.Post("/devices/{id}/sessions", s.handleStart)
 	r.Delete("/devices/{id}", s.handleDeleteDevice)
-	r.Get("/sessions/{id}", s.handleSessionInfo)
-	r.Get("/sessions/{id}/ws", s.handleViewer)
+	r.Get("/live/{id}", s.handleSessionInfo)
+	r.Get("/live/{id}/ws", s.handleViewer)
 	r.Get("/enrollment-tokens", s.handleListTokens)
 	r.Post("/enrollment-tokens", s.handleCreateToken)
 	r.Delete("/enrollment-tokens/{id}", s.handleRevokeToken)

@@ -100,7 +100,7 @@ func (s *Service) Start(ctx context.Context) error {
 	s.mu.Unlock()
 	_, err := s.DB.Exec(ctx, `UPDATE devices SET online=false WHERE online`)
 	if err == nil {
-		_, err = s.DB.Exec(ctx, `UPDATE remote_sessions SET ended_at=now(), end_reason='server_restart' WHERE ended_at IS NULL`)
+		_, err = s.DB.Exec(ctx, `UPDATE remote_sessions SET ended_at=now(), end_reason='server_shutdown' WHERE ended_at IS NULL`)
 	}
 	return err
 }
@@ -214,17 +214,12 @@ func isUniqueViolation(err error) bool {
 	return errors.As(err, &pe) && pe.Code == "23505"
 }
 
-// remoteIP is the client address. X-Forwarded-For is only trusted from a local reverse proxy.
+// remoteIP is the client address. The router in front (api.TrustedProxyIP) has already
+// replaced RemoteAddr with the real client when the request came through a trusted proxy.
 func remoteIP(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
-		host = r.RemoteAddr
-	}
-	if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
-		if xf := r.Header.Get("X-Forwarded-For"); xf != "" {
-			parts := strings.Split(xf, ",")
-			return strings.TrimSpace(parts[len(parts)-1])
-		}
+		return r.RemoteAddr
 	}
 	return host
 }

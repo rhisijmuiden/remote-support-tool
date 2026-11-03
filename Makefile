@@ -17,7 +17,7 @@ server:
 	cd server && CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o ../bin/rhis-remote ./cmd/rhis-remote
 
 test:
-	cd server && go vet ./... && go test ./...
+	cd server && go vet ./... && go test -p 1 ./...
 	cd web && npx tsc -b && npx vitest run
 	cd client && cargo test
 

@@ -19,5 +19,3 @@ CREATE TABLE enrollment_tokens (
     uses        INT NOT NULL DEFAULT 0,
     revoked_at  TIMESTAMPTZ
 );
-
-ALTER TABLE remote_sessions ADD COLUMN end_reason TEXT;

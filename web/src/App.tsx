@@ -15,8 +15,24 @@ import { BackupSettings } from "./pages/BackupSettings";
 import { AuditLog } from "./pages/AuditLog";
 import { Account } from "./pages/Account";
 import { Remote } from "./pages/Remote";
+import { Sessions } from "./pages/Sessions";
+import { SessionDetail } from "./pages/SessionDetail";
+import { RecordingSettings } from "./pages/RecordingSettings";
+import { SharedRecording } from "./pages/SharedRecording";
 
 export function App() {
+  // Share links are public: they never ask for a sign-in.
+  if (useLocation().pathname.startsWith("/r/")) {
+    return (
+      <Routes>
+        <Route path="/r/:token" element={<SharedRecording />} />
+      </Routes>
+    );
+  }
+  return <Portal />;
+}
+
+function Portal() {
   const { t } = useTranslation();
   const [meta, setMeta] = useState<Meta | null>(null);
   const [user, setUser] = useState<User | null | undefined>(undefined);
@@ -47,11 +63,11 @@ export function App() {
   }
   const admin = user.role === "admin";
   // The remote viewer uses the whole window, without the menu.
-  if (loc.pathname.startsWith("/session/")) {
+  if (loc.pathname.startsWith("/remote/")) {
     return (
       <SessionContext.Provider value={{ user, meta, setUser }}>
         <Routes>
-          <Route path="/session/:sid" element={<Remote />} />
+          <Route path="/remote/:sid" element={<Remote />} />
         </Routes>
       </SessionContext.Provider>
     );
@@ -63,10 +79,13 @@ export function App() {
           <Route path="/" element={<Dashboard />} />
           <Route path="/devices" element={<Devices />} />
           <Route path="/customers" element={<Customers />} />
+          <Route path="/sessions" element={<Sessions />} />
+          <Route path="/sessions/:id" element={<SessionDetail />} />
           <Route path="/account" element={<Account />} />
           {admin && <Route path="/settings/users" element={<Users />} />}
           {admin && <Route path="/settings/mail" element={<MailSettings />} />}
           {admin && <Route path="/settings/backup" element={<BackupSettings />} />}
+          {admin && <Route path="/settings/recording" element={<RecordingSettings />} />}
           {admin && <Route path="/settings/audit" element={<AuditLog />} />}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

@@ -47,7 +47,7 @@ jobs:
         run: |
           test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
           go vet ./...
-          go test ./...
+          go test -p 1 ./... # packages share one test database; the backup test dumps all of it
 
   client-linux:
     runs-on: ubuntu-24.04

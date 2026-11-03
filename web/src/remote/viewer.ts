@@ -58,7 +58,7 @@ export class RemoteViewer {
 
   start() {
     const proto = location.protocol === "https:" ? "wss:" : "ws:";
-    const ws = new WebSocket(`${proto}//${location.host}/api/sessions/${encodeURIComponent(this.sessionId)}/ws`);
+    const ws = new WebSocket(`${proto}//${location.host}/api/live/${encodeURIComponent(this.sessionId)}/ws`);
     ws.binaryType = "arraybuffer";
     this.ws = ws;
     ws.onopen = () => this.setState("waiting");

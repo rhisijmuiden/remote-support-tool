@@ -20,11 +20,15 @@ const paths: Record<string, string> = {
   restore: "M3 12a9 9 0 1 0 3-6.7M3 4v5h5",
   plus: "M12 5v14M5 12h14",
   connect: "M3 4h18v12H3zM8 20h8M12 16v4M9 10h6M12 7l3 3-3 3",
-  back: "M15 5l-7 7 7 7",
   lock: "M6 11h12v9H6zM8.5 11V8a3.5 3.5 0 0 1 7 0v3",
   eye: "M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12zM12 9.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5z",
   fullscreen: "M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5",
-  copy: "M9 9h11v11H9zM5 15H4V4h11v1",
+  sessions: "M3 5h18v11H3zM8 20h8M10 8.5v4l3.5-2z",
+  record: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6z",
+  download: "M12 4v11M7 10l5 5 5-5M5 20h14",
+  link: "M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1",
+  copy: "M8 8h12v12H8zM4 16V4h12",
+  back: "M15 5l-7 7 7 7",
   auto: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 3v18",
 };
 
