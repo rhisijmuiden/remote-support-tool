@@ -53,9 +53,10 @@ does not start and the log says so.
 
 ### Behind a reverse proxy (Zoraxy, nginx, Traefik)
 
-The portal and API work behind any HTTPS reverse proxy. Add the proxy's address to
-`trusted_proxies` so the real client address is used for the sign-in limit, the activity log and
-for relays that register through the proxy.
+The portal and API work behind any HTTPS reverse proxy. Install with
+`--domain <public name> --behind-proxy <proxy IP>` (or add the proxy's address to
+`trusted_proxies`) so the real client address is used for the sign-in limit, the activity log
+and for relays that register through the proxy.
 
 TURN is not HTTP and cannot go through an HTTP reverse proxy. Forward **3478 UDP+TCP and
 49160-49359 UDP directly** from the router to the RHIS Remote server, past the proxy. Zoraxy's

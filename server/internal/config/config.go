@@ -43,7 +43,12 @@ type Config struct {
 	// AllowInsecureHTTP permits serving plain HTTP on a non-loopback address. Off by default:
 	// passwords and session cookies must never cross the network unencrypted.
 	AllowInsecureHTTP bool `yaml:"allow_insecure_http"`
-	Branding          struct {
+	// TrustedProxies lists extra reverse proxies (IPs or CIDR ranges) in front of the local
+	// Caddy, e.g. Zoraxy. X-Forwarded-For hops added by these are skipped when looking for
+	// the real client address. Loopback is always trusted.
+	TrustedProxies []string `yaml:"trusted_proxies"`
+	trustedNets    []*net.IPNet
+	Branding       struct {
 		ProductName string `yaml:"product_name"`
 		CompanyName string `yaml:"company_name"`
 	} `yaml:"branding"`
@@ -143,10 +148,14 @@ func Load(path string) (Config, error) {
 	env("JOIN_URL", &c.Join.ControlURL)
 	env("JOIN_TOKEN", &c.Join.Token)
 	env("RELAY_PUBLIC_IP", &c.Relay.PublicIP)
+	if v := os.Getenv("RHIS_REMOTE_TRUSTED_PROXIES"); v != "" {
+		c.TrustedProxies = strings.Split(v, ",")
+	}
 	if v := os.Getenv("RHIS_REMOTE_ROLES"); v != "" {
 		c.Roles = strings.Split(v, ",")
 	}
-	return c, c.Validate()
+	err := c.Validate()
+	return c, err
 }
 
 func (c *Config) Validate() error {
@@ -213,6 +222,25 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("%w (all traffic between servers must be encrypted)", err)
 		}
 	}
+	c.trustedNets = nil
+	for _, p := range c.TrustedProxies {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		if !strings.Contains(p, "/") {
+			if ip := net.ParseIP(p); ip != nil && ip.To4() != nil {
+				p += "/32"
+			} else {
+				p += "/128"
+			}
+		}
+		_, n, err := net.ParseCIDR(p)
+		if err != nil {
+			return fmt.Errorf("trusted_proxies: %q is not an IP address or CIDR range", p)
+		}
+		c.trustedNets = append(c.trustedNets, n)
+	}
 	return nil
 }
 
@@ -269,6 +297,22 @@ func checkDatabaseTLS(dsn string) error {
 func (c *Config) NeedsDatabase() bool {
 	for _, r := range DatabaseRoles {
 		if c.HasRole(r) {
+			return true
+		}
+	}
+	return false
+}
+
+// IsTrustedProxy reports whether ip is loopback or listed in trusted_proxies.
+func (c *Config) IsTrustedProxy(ip net.IP) bool {
+	if ip == nil {
+		return false
+	}
+	if ip.IsLoopback() {
+		return true
+	}
+	for _, n := range c.trustedNets {
+		if n.Contains(ip) {
 			return true
 		}
 	}

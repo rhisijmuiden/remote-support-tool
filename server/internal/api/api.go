@@ -55,7 +55,7 @@ type API struct {
 // Routes returns the /api router.
 func (a *API) Routes() http.Handler {
 	r := chi.NewRouter()
-	r.Use(middleware.RequestID, trustedProxyIP, middleware.Recoverer, csrf)
+	r.Use(middleware.RequestID, trustedProxyIP(a.Cfg.IsTrustedProxy), middleware.Recoverer, csrf)
 	r.Get("/meta", a.meta)
 	r.Post("/setup", a.setup)
 	r.Post("/login", a.login)
@@ -170,24 +170,45 @@ func actor(r *http.Request) audit.Actor {
 	return a
 }
 
-// trustedProxyIP takes the client address from X-Forwarded-For / X-Real-IP only when the
-// request comes from the local reverse proxy (Caddy on the same machine). Anyone else could
-// spoof these headers to dodge the login rate limit or fake the activity log.
-func trustedProxyIP(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		host, _, err := net.SplitHostPort(r.RemoteAddr)
-		if ip := net.ParseIP(host); err == nil && ip != nil && ip.IsLoopback() {
-			fwd := r.Header.Get("X-Real-IP")
-			if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-				parts := strings.Split(xff, ",")
-				fwd = strings.TrimSpace(parts[len(parts)-1]) // the address the proxy itself saw
+// trustedProxyIP finds the real client address. Forwarding headers are only believed
+// from trusted proxies: the local Caddy (loopback) and any trusted_proxies in the config,
+// such as Zoraxy in front of it. X-Forwarded-For is walked from the right and the first
+// address that is not a trusted proxy is the client; anything left of it could be spoofed
+// by the client to dodge the login rate limit or fake the activity log.
+func trustedProxyIP(trusted func(net.IP) bool) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			host, _, err := net.SplitHostPort(r.RemoteAddr)
+			if err == nil && trusted(net.ParseIP(host)) {
+				if ip := forwardedClient(r, trusted); ip != nil {
+					r.RemoteAddr = net.JoinHostPort(ip.String(), "0")
+				}
 			}
-			if net.ParseIP(fwd) != nil {
-				r.RemoteAddr = net.JoinHostPort(fwd, "0")
-			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+func forwardedClient(r *http.Request, trusted func(net.IP) bool) net.IP {
+	var hops []string
+	for _, v := range r.Header.Values("X-Forwarded-For") {
+		hops = append(hops, strings.Split(v, ",")...)
+	}
+	if len(hops) == 0 {
+		return net.ParseIP(strings.TrimSpace(r.Header.Get("X-Real-IP")))
+	}
+	var last net.IP
+	for i := len(hops) - 1; i >= 0; i-- {
+		ip := net.ParseIP(strings.TrimSpace(hops[i]))
+		if ip == nil {
+			break // garbage: stop at the last address a trusted proxy vouched for
 		}
-		next.ServeHTTP(w, r)
-	})
+		last = ip
+		if !trusted(ip) {
+			return ip
+		}
+	}
+	return last
 }
 
 // csrf requires a custom header on state-changing requests. Browsers cannot send it
