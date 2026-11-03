@@ -11,6 +11,7 @@ const paths: Record<string, string> = {
   account: "M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21a8 8 0 0 1 16 0",
   logout: "M15 4h4v16h-4M10 8l-4 4 4 4M6 12h10",
   menu: "M4 6h16M4 12h16M4 18h16",
+  quick: "M13 3L5 13h6l-1 8 8-10h-6z",
   close: "M6 6l12 12M18 6L6 18",
   sun: "M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4",
   moon: "M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z",

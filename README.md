@@ -20,6 +20,16 @@ Self-hosted remote support for Windows: remote control with unattended access, a
 - **Code signing:** installers and agent updates are Authenticode-signed on the server, with an uploaded PFX certificate or a signing command for keys on a hardware token, HSM or cloud service.
 - **One binary, several roles, scales out:** `roles: ["all"]` on one machine, including a TURN relay for connections behind strict NAT. Add relay servers close to your customers with a one-time token from the portal (no database needed, they update themselves), or run several control servers on a shared PostgreSQL with NATS. All traffic between servers is encrypted. See [docs/scaling.md](docs/scaling.md).
 
+## Quick support (no install)
+
+A customer downloads one portable `.exe` from your server, starts it and reads out a 9-digit code. You enter the code in the portal, the customer clicks Allow, and you are connected. Nothing is installed, and the code stops working when the window closes. All traffic is encrypted (HTTPS, WSS and WebRTC). Details: [docs/quicksupport.md](docs/quicksupport.md).
+
+| | | |
+| --- | --- | --- |
+| ![QuickSupport code](docs/screenshots/qs-ready-en.png) | ![Allow request](docs/screenshots/qs-request-nl.png) | ![Session active](docs/screenshots/qs-active-en.png) |
+
+![Quick support in the portal](docs/screenshots/portal-quick-en.png)
+
 ## Screenshots
 
 All screenshots are taken from a real `v0.1.0-test.1` server. The backups shown were made to an FTPS server.
@@ -49,7 +59,7 @@ The device and remote session screenshots come from a real server with the agent
 | --- | --- |
 | 1. Server foundation | Done (v0.1) |
 | 2. Windows agent and connectivity (NAT traversal, WebRTC, relay) | In test (v0.2), Windows hardware test pending |
-| 3. Quick support client (no install, session code) | Planned |
+| 3. Quick support client (no install, session code) | In review ([#14](https://github.com/rhisijmuiden/remote-support-tool/pull/14)) |
 | 4. Session audit and recording | In test, including agent sessions |
 | 5. Client builder and signed central updates | Server and portal in test; the agent's update client is next |
 | 6. Multi-server and scale-out (relays, NATS cluster) | Relays, cluster and Servers page in test |
@@ -136,7 +146,7 @@ On Linux the agent runs with a synthetic test screen, which is handy for working
 | --- | --- |
 | `server/` | Go server (`cmd/rhis-remote`, packages in `internal/`) |
 | `web/` | React + TypeScript portal (Vite, i18next) |
-| `client/` | Rust clients: `core` (protocol, WebRTC, H.264, capture and input) and `agent` (Windows service) |
+| `client/` | Rust clients: `core` (protocol, WebRTC, H.264, capture and input), `agent` (Windows service) and `quicksupport` (portable QuickSupport) |
 | `deploy/debian/` | Installer, systemd unit, example config |
 | `branding/` | RHIS house style: logos, colors, fonts |
 | `docs/screenshots/` | Portal screenshots used in this README |

@@ -80,6 +80,7 @@ export function Layout({ children }: { children: ReactNode }) {
           <small>Remote</small>
         </div>
         {nav("/", "dashboard", t("nav.dashboard"))}
+        {nav("/quick", "quick", t("nav.quick"))}
         {nav("/devices", "devices", t("nav.devices"))}
         {nav("/customers", "customers", t("nav.customers"))}
         {nav("/builds", "builder", t("nav.builds"))}

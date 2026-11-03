@@ -9,6 +9,7 @@ func TestCanonicalReason(t *testing.T) {
 		"agent:customer_ended": "agent_closed",
 		"rejected:busy":        "agent_closed",
 		"device_deleted":       "agent_closed",
+		"quick_closed":         "agent_closed",
 		"agent_disconnected":   "timeout",
 		"viewer_stalled":       "timeout",
 		"timeout":              "timeout",

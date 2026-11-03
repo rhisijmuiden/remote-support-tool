@@ -19,7 +19,8 @@
     "servers": "Servers",
     "builds": "Client-builder",
     "agent_updates": "Agent-updates",
-    "codesign": "Code signing"
+    "codesign": "Code signing",
+    "quick": "Snelle hulp"
   },
   "common": {
     "save": "Opslaan",
@@ -119,7 +120,10 @@
     "codesign_expired": "Dit certificaat is verlopen.",
     "codesign_command": "Geen geldige ondertekenopdracht in config.yaml (die moet {in} bevatten).",
     "codesign_mode": "Kies een ondertekenmethode.",
-    "codesign_failed": "Het ondertekenen van de installer is mislukt."
+    "codesign_failed": "Het ondertekenen van de installer is mislukt.",
+    "quick_not_found": "Geen open QuickSupport met deze code. Controleer de code met de klant en of QuickSupport nog open staat.",
+    "invalid_code": "Een code heeft 9 cijfers.",
+    "quick_too_many": "Te vaak een verkeerde code. Wacht 15 minuten en probeer het opnieuw."
   },
   "auth": {
     "tagline": "Hulp op afstand die je zelf host.",
@@ -774,5 +778,28 @@
     "command_missing": "Zet eerst code_signing.command in config.yaml.",
     "command_hint": "De opdracht uit config.yaml wordt gebruikt. Die kun je alleen op de server wijzigen, niet in het portaal.",
     "hsm_hint": "Openbare code signing-certificaten die sinds juni 2023 zijn uitgegeven, bewaren de sleutel op een hardwaretoken, HSM of clouddienst. Gebruik daarvoor de ondertekenopdracht, bijvoorbeeld met jsign. De PFX-methode past bij oudere certificaten en bij een eigen (intern) certificaat."
+  },
+  "quick": {
+    "title": "Snelle hulp",
+    "subtitle": "Help een klant eenmalig, zonder iets op de computer te installeren.",
+    "connect_title": "Verbinden met een code",
+    "connect_help": "Vraag de klant om de code van 9 cijfers die QuickSupport laat zien.",
+    "code": "Sessiecode",
+    "connect": "Verbinden",
+    "connecting": "Verbinden…",
+    "consent_note": "De klant ziet je naam en moet eerst op Toestaan klikken voordat je het scherm ziet.",
+    "download_title": "QuickSupport voor de klant",
+    "download_help": "Stuur de klant deze link. De klant start het bestand één keer; er wordt niets geïnstalleerd en er zijn geen beheerdersrechten nodig.",
+    "not_available": "QuickSupport is nog niet beschikbaar op deze server. Het wordt samen met de bestanden van de Windows-agent geïnstalleerd.",
+    "needs_https": "Deze server gebruikt geen HTTPS. QuickSupport verbindt alleen versleuteld, dus stel eerst HTTPS in.",
+    "link": "Downloadlink",
+    "copy_link": "Link kopiëren",
+    "copied": "Gekopieerd",
+    "download": "Downloaden",
+    "how_title": "Zo werkt het",
+    "how_1": "De klant downloadt QuickSupport via de link en start het.",
+    "how_2": "QuickSupport toont een code van 9 cijfers. De klant leest die aan je voor.",
+    "how_3": "Je vult de code hier in. De klant klikt op Toestaan.",
+    "how_4": "Als je klaar bent, beëindigt een van beide de sessie. Na het sluiten van QuickSupport werkt de code niet meer."
   }
 }

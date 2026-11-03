@@ -9,6 +9,7 @@ import { Login, Setup } from "./pages/Auth";
 import { Dashboard } from "./pages/Dashboard";
 import { Devices } from "./pages/Devices";
 import { Customers } from "./pages/Customers";
+import { QuickSupport } from "./pages/QuickSupport";
 import { Users } from "./pages/Users";
 import { MailSettings } from "./pages/MailSettings";
 import { BackupSettings } from "./pages/BackupSettings";
@@ -83,6 +84,7 @@ function Portal() {
           <Route path="/" element={<Dashboard />} />
           <Route path="/devices" element={<Devices />} />
           <Route path="/customers" element={<Customers />} />
+          <Route path="/quick" element={<QuickSupport />} />
           <Route path="/builds" element={<Builds />} />
           <Route path="/builds/:id" element={<BuildDetail />} />
           <Route path="/sessions" element={<Sessions />} />

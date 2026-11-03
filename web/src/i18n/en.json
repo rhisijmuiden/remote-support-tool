@@ -19,7 +19,8 @@
     "servers": "Servers",
     "builds": "Client builder",
     "agent_updates": "Agent updates",
-    "codesign": "Code signing"
+    "codesign": "Code signing",
+    "quick": "Quick support"
   },
   "common": {
     "save": "Save",
@@ -119,7 +120,10 @@
     "codesign_expired": "This certificate has expired.",
     "codesign_command": "No valid signing command in config.yaml (it needs {in}).",
     "codesign_mode": "Choose a signing method.",
-    "codesign_failed": "Signing the installer failed."
+    "codesign_failed": "Signing the installer failed.",
+    "quick_not_found": "No open QuickSupport with this code. Check the code with the customer, and make sure QuickSupport is still open.",
+    "invalid_code": "A code has 9 digits.",
+    "quick_too_many": "Too many wrong codes. Wait 15 minutes and try again."
   },
   "auth": {
     "tagline": "Remote support you host yourself.",
@@ -774,5 +778,28 @@
     "command_missing": "Set code_signing.command in config.yaml first.",
     "command_hint": "The command from config.yaml is used. It can only be changed on the server, not in the portal.",
     "hsm_hint": "Public code signing certificates issued since June 2023 keep their key on a hardware token, HSM or cloud service. Use the signing command for those, for example with jsign. The PFX method suits older certificates and your own (internal) certificate."
+  },
+  "quick": {
+    "title": "Quick support",
+    "subtitle": "Help a customer once, without installing anything on their computer.",
+    "connect_title": "Connect with a code",
+    "connect_help": "Ask the customer for the 9-digit code that QuickSupport shows.",
+    "code": "Session code",
+    "connect": "Connect",
+    "connecting": "Connecting…",
+    "consent_note": "The customer sees your name and must click Allow before you can see the screen.",
+    "download_title": "QuickSupport for the customer",
+    "download_help": "Send the customer this link. They start the file once; nothing is installed and it needs no administrator rights.",
+    "not_available": "QuickSupport is not available on this server yet. It is installed together with the Windows agent files.",
+    "needs_https": "This server does not use HTTPS. QuickSupport only connects over an encrypted connection, so set up HTTPS first.",
+    "link": "Download link",
+    "copy_link": "Copy link",
+    "copied": "Copied",
+    "download": "Download",
+    "how_title": "How it works",
+    "how_1": "The customer downloads QuickSupport with the link and starts it.",
+    "how_2": "QuickSupport shows a 9-digit code. The customer reads it out to you.",
+    "how_3": "You enter the code here. The customer clicks Allow.",
+    "how_4": "When you are done, either side ends the session. Closing QuickSupport makes the code invalid."
   }
 }

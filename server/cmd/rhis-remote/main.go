@@ -194,10 +194,17 @@ func serve(cfgPath string) error {
 		}
 		a.Gateway = &agents.Service{DB: pool, Audit: a.Audit, ICE: clusterICE{static: ice, reg: reg}, AgentDir: cfg.Gateway.AgentDir,
 			Sessions:  agents.AuditSessionLog{Log: sessionAudit{a.Sessions}},
-			Resolvers: []agents.EnrollResolver{a.Builder.ResolveEnrollToken}}
+			Resolvers: []agents.EnrollResolver{a.Builder.ResolveEnrollToken},
+			Quick: agents.QuickOptions{PublicURL: cfg.PublicURL, ProductName: cfg.Branding.ProductName, CompanyName: cfg.Branding.CompanyName,
+				UpdateKeys: agentUpd.UpdateKeys,
+				Channel: func(ctx context.Context) string {
+					st, _ := a.Update.Settings(ctx)
+					return st.Channel
+				}}}
 		if err := a.Gateway.Start(ctx); err != nil {
 			return err
 		}
+		go a.Gateway.QuickJanitor(ctx)
 	}
 	if cfg.HasRole("scheduler") {
 		sch := &backup.Scheduler{Svc: a.Backup, OnDone: func(kind string, run *backup.Run, err error) {

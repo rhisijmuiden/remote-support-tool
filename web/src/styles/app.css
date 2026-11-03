@@ -281,3 +281,10 @@ table.clickable tbody tr:hover td { background: var(--surface); }
 .shared main { width: min(960px, 100%); margin: 0 auto; padding: 32px 16px 48px; display: grid; gap: 18px; align-content: start; }
 .shared main p.muted { margin-top: 6px; }
 .seg button:disabled { opacity: 0.45; cursor: not-allowed; }
+
+
+/* ---- Quick support ---- */
+.quick-code { font-family: var(--font); font-stretch: 125%; font-weight: 800; font-size: 1.9rem; letter-spacing: 0.04em; padding: 12px 14px; }
+.small { font-size: 0.82rem; }
+ol.steps { margin: 0; gap: 8px; }
+.steps li::marker { color: var(--accent-text, var(--koraal)); font-weight: 800; }

@@ -63,6 +63,8 @@ type Service struct {
 	Resolvers []EnrollResolver
 	// AgentDir holds rhis-agent_windows_amd64.exe for the public download link.
 	AgentDir string
+	// Quick is written into each downloaded QuickSupport exe (see quick.go).
+	Quick QuickOptions
 	// PingInterval is how often the server pings each agent (default 25 s).
 	PingInterval time.Duration
 	// RequestTimeout is how long a session may take to get both sides connected.

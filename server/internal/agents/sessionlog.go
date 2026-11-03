@@ -79,7 +79,7 @@ func CanonicalReason(r string) string {
 	switch {
 	case head == "viewer" || head == "viewer_left" || head == "viewer_closed":
 		return "viewer_closed"
-	case head == "agent" || head == "agent_left" || head == "rejected" || head == "device_deleted" || head == "agent_closed":
+	case head == "agent" || head == "agent_left" || head == "rejected" || head == "device_deleted" || head == "agent_closed" || head == "quick_closed":
 		return "agent_closed"
 	case head == "server_restart" || head == "server_shutdown":
 		return "server_shutdown"
