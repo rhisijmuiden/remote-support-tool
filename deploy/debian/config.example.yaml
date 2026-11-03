@@ -8,7 +8,30 @@ secret_key: "CHANGE_ME"           # rhis-remote gen-secret; never change it late
 # hops are skipped when looking for the visitor's address. Loopback is always trusted.
 # trusted_proxies: ["10.10.4.10"]
 # allow_insecure_http: false      # never true in production: plain HTTP exposes passwords and cookies
-roles: ["all"]                    # web, api, scheduler; more roles (gateway, relay) arrive with the agent
+roles: ["all"]                    # web, api, scheduler, relay (see docs/scaling.md)
+node:
+  name: ""                        # shown under Settings > Servers; defaults to the host name
+  region: ""
+# Built-in TURN relay (role "relay"). Forward 3478 udp+tcp and the udp port range directly
+# to this server; an HTTP reverse proxy (Zoraxy, Caddy) cannot carry TURN.
+relay:
+  listen: ":3478"
+  tls_listen: ":5349"             # TURNS; needs domain + cert_file, or domain with tls_listen ":443"
+  public_ip: ""                   # address customers reach; default: the public_url host's address
+  # domain: "relay.example.com"
+  # cert_file: ""
+  # key_file: ""
+  min_port: 49160
+  max_port: 49359
+  # allow_private_peers: false    # true only if viewers and devices share a LAN with the relay
+# Several control servers on one shared database (see docs/scaling.md). NATS must use TLS
+# with client certificates, and a database on another machine needs sslmode=verify-full.
+# cluster:
+#   nats:
+#     url: "tls://nats1.internal:4222,tls://nats2.internal:4222"
+#     ca_file: "/etc/rhis-remote/nats/ca.pem"
+#     cert_file: "/etc/rhis-remote/nats/client.pem"
+#     key_file: "/etc/rhis-remote/nats/client-key.pem"
 update:
   repo: "rhisijmuiden/remote-support-tool"
   asset: "rhis-remote_linux_amd64.tar.gz"

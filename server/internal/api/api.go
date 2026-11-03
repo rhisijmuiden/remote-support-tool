@@ -20,6 +20,7 @@ import (
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/audit"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/auth"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/backup"
+	"github.com/rhisijmuiden/remote-support-tool/server/internal/cluster"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/config"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/mail"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/sessions"
@@ -38,6 +39,8 @@ type API struct {
 	Update    *update.Service
 	Agents    *agents.Service // nil when this server does not run the gateway role
 	Sessions  *sessions.Service
+	Cluster   *cluster.Registry
+	Bus       cluster.Bus
 	// Restart is called after an update has been installed.
 	Restart func()
 
@@ -61,6 +64,10 @@ func (a *API) Routes() http.Handler {
 	r.Post("/logout", a.logout)
 	r.Get("/public/recordings/{token}", a.publicRecording)
 	r.Get("/public/recordings/{token}/video", a.publicVideo)
+	// Server-to-server: relays join with a one-time token, then authenticate heartbeats
+	// with their node credential.
+	r.Post("/cluster/join", a.clusterJoin)
+	r.Post("/cluster/heartbeat", a.clusterHeartbeat)
 	r.Group(func(r chi.Router) {
 		r.Use(a.requireUser)
 		r.Get("/me", a.me)
@@ -106,6 +113,13 @@ func (a *API) Routes() http.Handler {
 			r.Get("/settings/recording", a.getRecordingPolicy)
 			r.Put("/settings/recording", a.putRecordingPolicy)
 			r.Delete("/sessions/{id}/recording", a.deleteRecording)
+			r.Get("/cluster/nodes", a.clusterNodes)
+			r.Put("/cluster/nodes/{node}/drain", a.clusterDrain)
+			r.Delete("/cluster/nodes/{node}", a.clusterRemove)
+			r.Get("/cluster/tokens", a.clusterTokens)
+			r.Post("/cluster/tokens", a.clusterCreateToken)
+			r.Delete("/cluster/tokens/{id}", a.clusterRevokeToken)
+			r.Post("/cluster/turn-secret/rotate", a.clusterRotateSecret)
 		})
 	})
 	return r

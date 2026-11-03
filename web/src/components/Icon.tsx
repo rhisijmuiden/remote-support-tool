@@ -23,6 +23,7 @@ const paths: Record<string, string> = {
   lock: "M6 11h12v9H6zM8.5 11V8a3.5 3.5 0 0 1 7 0v3",
   eye: "M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12zM12 9.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5z",
   fullscreen: "M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5",
+  server: "M4 4h16v6H4zM4 14h16v6H4zM8 7h.01M8 17h.01",
   sessions: "M3 5h18v11H3zM8 20h8M10 8.5v4l3.5-2z",
   record: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6z",
   download: "M12 4v11M7 10l5 5 5-5M5 20h14",

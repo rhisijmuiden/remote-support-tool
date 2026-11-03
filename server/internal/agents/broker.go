@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"sync"
 	"time"
@@ -96,7 +97,7 @@ func (s *Service) StartSession(ctx context.Context, deviceID int64, u *auth.User
 	if c == nil {
 		return nil, ErrOffline
 	}
-	ice, err := s.ICE.ICEServers(ctx, u.Email)
+	ice, err := s.ICE.ICEServers(ctx, fmt.Sprintf("u%d", u.ID))
 	if err != nil {
 		return nil, err
 	}
@@ -113,7 +114,7 @@ func (s *Service) StartSession(ctx context.Context, deviceID int64, u *auth.User
 	s.sessions[ss.ID] = ss
 	s.mu.Unlock()
 
-	agentICE, _ := s.ICE.ICEServers(ctx, "device-"+code)
+	agentICE, _ := s.ICE.ICEServers(ctx, fmt.Sprintf("d%d", deviceID))
 	err = c.send(map[string]any{
 		"type": "session_request", "session_id": ss.ID, "kind": kind, "user_name": u.Name,
 		"recording": mustRecord, "ice_servers": agentICE,

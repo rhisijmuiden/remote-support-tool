@@ -3,6 +3,7 @@ package agents
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -125,7 +126,7 @@ func (s *Service) handleSessionInfo(w http.ResponseWriter, r *http.Request) {
 		fail(w, 404, "session_not_found", nil)
 		return
 	}
-	ice, err := s.ICE.ICEServers(r.Context(), auth.FromContext(r.Context()).Email)
+	ice, err := s.ICE.ICEServers(r.Context(), fmt.Sprintf("u%d", auth.FromContext(r.Context()).ID))
 	if err != nil {
 		fail(w, 500, "internal", err)
 		return

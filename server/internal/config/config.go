@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"strings"
 
@@ -12,7 +13,16 @@ import (
 )
 
 // Known server roles. A single machine normally runs "all".
-var KnownRoles = []string{"web", "api", "scheduler", "gateway"}
+//
+//	web, api   portal and JSON API (needs the database)
+//	scheduler  scheduled backups; in a cluster only the elected leader runs it
+//	relay      TURN/TURNS media relay; can run on its own without a database
+//	gateway    Windows agents: enrollment, control channels and remote sessions
+var KnownRoles = []string{"web", "api", "scheduler", "relay", "gateway"}
+
+// DatabaseRoles need a database connection. A node with only other roles joins a
+// control server over HTTPS instead.
+var DatabaseRoles = []string{"web", "api", "scheduler", "gateway"}
 
 type Config struct {
 	Listen      string   `yaml:"listen"`       // e.g. ":8080" (behind a reverse proxy) or ":443"
@@ -50,6 +60,51 @@ type Config struct {
 		ProductName string `yaml:"product_name"`
 		CompanyName string `yaml:"company_name"`
 	} `yaml:"branding"`
+	Node    NodeConfig    `yaml:"node"`
+	Cluster ClusterConfig `yaml:"cluster"`
+	Join    JoinConfig    `yaml:"join"`
+	Relay   RelayConfig   `yaml:"relay"`
+}
+
+// NodeConfig names this server in the cluster overview.
+type NodeConfig struct {
+	Name   string `yaml:"name"`   // defaults to the hostname
+	Region string `yaml:"region"` // free text, e.g. "eu-west"; used to pick nearby relays later
+}
+
+// ClusterConfig connects several control servers (web/api) that share one PostgreSQL
+// database. Without NATS every server works on its own; that is fine for one server.
+type ClusterConfig struct {
+	NATS struct {
+		URL      string `yaml:"url"`       // tls://nats1:4222,tls://nats2:4222
+		CAFile   string `yaml:"ca_file"`   // CA that signed the NATS server certificates
+		CertFile string `yaml:"cert_file"` // client certificate (mutual TLS)
+		KeyFile  string `yaml:"key_file"`
+	} `yaml:"nats"`
+}
+
+// JoinConfig is used by servers without a database (relays). They register with a
+// control server over HTTPS using a one-time join token from the portal.
+type JoinConfig struct {
+	ControlURL string `yaml:"control_url"` // https://remote.example.com
+	Token      string `yaml:"token"`       // one-time token; exchanged for a node credential on first start
+	CAFile     string `yaml:"ca_file"`     // only for a control server with a private CA
+}
+
+// RelayConfig configures the TURN relay. WebRTC media through the relay is always
+// end-to-end encrypted (DTLS-SRTP); TURNS additionally wraps the relay connection in TLS.
+type RelayConfig struct {
+	Listen    string `yaml:"listen"`     // TURN over UDP and TCP, default ":3478"
+	TLSListen string `yaml:"tls_listen"` // TURNS, default ":5349"; use ":443" on a dedicated relay
+	PublicIP  string `yaml:"public_ip"`  // address peers reach; detected when empty
+	Domain    string `yaml:"domain"`     // host name for TURNS URLs and the automatic certificate
+	CertFile  string `yaml:"cert_file"`  // TURNS certificate; Let's Encrypt via domain when empty
+	KeyFile   string `yaml:"key_file"`
+	MinPort   uint16 `yaml:"min_port"` // relayed UDP port range, default 49160-49359
+	MaxPort   uint16 `yaml:"max_port"`
+	// AllowPrivatePeers lets the relay forward to private (LAN) addresses. Off by default
+	// so the relay cannot be abused to reach the internal network.
+	AllowPrivatePeers bool `yaml:"allow_private_peers"`
 }
 
 // ICEServer is a STUN or TURN server (urls like "stun:host:3478" or "turns:host:443").
@@ -71,6 +126,10 @@ func Default() Config {
 	c.Gateway.AgentDir = "/opt/rhis-remote/agent"
 	c.Branding.ProductName = "RHIS Remote"
 	c.Branding.CompanyName = "RHIS"
+	c.Relay.Listen = ":3478"
+	c.Relay.TLSListen = ":5349"
+	c.Relay.MinPort = 49160
+	c.Relay.MaxPort = 49359
 	return c
 }
 
@@ -100,6 +159,11 @@ func Load(path string) (Config, error) {
 	env("DATA_DIR", &c.DataDir)
 	env("SECRET_KEY", &c.SecretKey)
 	env("UPDATE_TOKEN", &c.Update.Token)
+	env("NODE_NAME", &c.Node.Name)
+	env("NATS_URL", &c.Cluster.NATS.URL)
+	env("JOIN_URL", &c.Join.ControlURL)
+	env("JOIN_TOKEN", &c.Join.Token)
+	env("RELAY_PUBLIC_IP", &c.Relay.PublicIP)
 	if v := os.Getenv("RHIS_REMOTE_TRUSTED_PROXIES"); v != "" {
 		c.TrustedProxies = strings.Split(v, ",")
 	}
@@ -111,17 +175,20 @@ func Load(path string) (Config, error) {
 }
 
 func (c *Config) Validate() error {
-	if c.DatabaseURL == "" {
-		return errors.New("database_url is required")
-	}
-	if len(c.SecretKey) < 32 {
-		return errors.New("secret_key must be at least 32 characters")
-	}
 	roles := []string{}
+	seen := map[string]bool{}
+	add := func(r string) {
+		if !seen[r] {
+			seen[r] = true
+			roles = append(roles, r)
+		}
+	}
 	for _, r := range c.Roles {
 		r = strings.TrimSpace(r)
 		if r == "all" {
-			roles = append(roles, KnownRoles...)
+			for _, k := range KnownRoles {
+				add(k)
+			}
 			continue
 		}
 		ok := false
@@ -131,14 +198,45 @@ func (c *Config) Validate() error {
 		if !ok {
 			return fmt.Errorf("unknown role %q (known: all, %s)", r, strings.Join(KnownRoles, ", "))
 		}
-		roles = append(roles, r)
+		add(r)
+	}
+	if len(roles) == 0 {
+		return errors.New("roles: at least one role is required")
 	}
 	c.Roles = roles
-	if c.TLS.CertFile == "" && !c.AllowInsecureHTTP && !isLoopback(c.Listen) {
-		return fmt.Errorf("listen %q would serve plain HTTP on the network: listen on 127.0.0.1 behind the HTTPS proxy (Caddy), set tls.cert_file and tls.key_file, or set allow_insecure_http: true for a lab setup", c.Listen)
+	if c.Node.Name == "" {
+		c.Node.Name, _ = os.Hostname()
 	}
-	if !strings.HasPrefix(c.PublicURL, "https://") && !c.AllowInsecureHTTP {
-		return fmt.Errorf("public_url must start with https:// (got %q); set allow_insecure_http: true only for a lab setup", c.PublicURL)
+	if c.NeedsDatabase() {
+		if c.DatabaseURL == "" {
+			return errors.New("database_url is required for roles " + strings.Join(DatabaseRoles, ", "))
+		}
+		if len(c.SecretKey) < 32 {
+			return errors.New("secret_key must be at least 32 characters")
+		}
+		if c.TLS.CertFile == "" && !c.AllowInsecureHTTP && !isLoopback(c.Listen) {
+			return fmt.Errorf("listen %q would serve plain HTTP on the network: listen on 127.0.0.1 behind the HTTPS proxy (Caddy), set tls.cert_file and tls.key_file, or set allow_insecure_http: true for a lab setup", c.Listen)
+		}
+		if !strings.HasPrefix(c.PublicURL, "https://") && !c.AllowInsecureHTTP {
+			return fmt.Errorf("public_url must start with https:// (got %q); set allow_insecure_http: true only for a lab setup", c.PublicURL)
+		}
+	} else {
+		if c.Join.ControlURL == "" {
+			return errors.New("join.control_url is required on a server without a database")
+		}
+	}
+	if c.HasRole("relay") {
+		if c.Relay.MinPort == 0 || c.Relay.MaxPort < c.Relay.MinPort {
+			return errors.New("relay: min_port and max_port must form a valid range")
+		}
+		if c.Relay.PublicIP != "" && net.ParseIP(c.Relay.PublicIP) == nil {
+			return fmt.Errorf("relay.public_ip %q is not an IP address", c.Relay.PublicIP)
+		}
+	}
+	if !c.AllowInsecureHTTP {
+		if err := c.checkEncryption(); err != nil {
+			return fmt.Errorf("%w (all traffic between servers must be encrypted)", err)
+		}
 	}
 	c.trustedNets = nil
 	for _, p := range c.TrustedProxies {
@@ -160,6 +258,65 @@ func (c *Config) Validate() error {
 		c.trustedNets = append(c.trustedNets, n)
 	}
 	return nil
+}
+
+// checkEncryption refuses configurations that would send traffic to another machine
+// without TLS.
+func (c *Config) checkEncryption() error {
+	if c.Join.ControlURL != "" {
+		u, err := url.Parse(c.Join.ControlURL)
+		if err != nil || u.Scheme != "https" || u.Host == "" {
+			return errors.New("join.control_url must be an https:// URL")
+		}
+	}
+	if n := c.Cluster.NATS; n.URL != "" {
+		for _, s := range strings.Split(n.URL, ",") {
+			u, err := url.Parse(strings.TrimSpace(s))
+			if err != nil || u.Scheme != "tls" {
+				return fmt.Errorf("cluster.nats.url %q must use tls://", s)
+			}
+		}
+		if n.CertFile == "" || n.KeyFile == "" {
+			return errors.New("cluster.nats needs cert_file and key_file (mutual TLS)")
+		}
+	}
+	if c.DatabaseURL != "" {
+		if err := checkDatabaseTLS(c.DatabaseURL); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// checkDatabaseTLS allows a plain connection only to a database on this machine.
+func checkDatabaseTLS(dsn string) error {
+	u, err := url.Parse(dsn)
+	if err != nil || (u.Scheme != "postgres" && u.Scheme != "postgresql") {
+		// Key/value DSNs are not inspected.
+		return nil
+	}
+	host := u.Hostname()
+	if host == "" || strings.HasPrefix(host, "/") || host == "localhost" {
+		return nil
+	}
+	if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
+		return nil
+	}
+	switch u.Query().Get("sslmode") {
+	case "require", "verify-ca", "verify-full":
+		return nil
+	}
+	return fmt.Errorf("database_url points to %s: set sslmode=verify-full (or require)", host)
+}
+
+// NeedsDatabase reports whether any role on this node uses the database.
+func (c *Config) NeedsDatabase() bool {
+	for _, r := range DatabaseRoles {
+		if c.HasRole(r) {
+			return true
+		}
+	}
+	return false
 }
 
 // IsTrustedProxy reports whether ip is loopback or listed in trusted_proxies.

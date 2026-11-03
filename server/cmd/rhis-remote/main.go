@@ -10,7 +10,9 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strings"
@@ -24,9 +26,11 @@ import (
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/audit"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/auth"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/backup"
+	"github.com/rhisijmuiden/remote-support-tool/server/internal/cluster"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/config"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/db"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/mail"
+	"github.com/rhisijmuiden/remote-support-tool/server/internal/relay"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/secret"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/sessions"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/settings"
@@ -48,6 +52,9 @@ func main() {
 		fs.Parse(args)
 		if err := serve(*cfgPath); err != nil {
 			slog.Error("server stopped", "err", err)
+			if errors.Is(err, cluster.ErrPermanent) {
+				os.Exit(3)
+			}
 			os.Exit(1)
 		}
 	case "version":
@@ -71,6 +78,17 @@ func serve(cfgPath string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	if err := os.MkdirAll(cfg.DataDir, 0o750); err != nil {
+		return fmt.Errorf("data_dir: %w", err)
+	}
+	ident, err := cluster.LoadIdentity(cfg.DataDir)
+	if err != nil {
+		return fmt.Errorf("node identity: %w", err)
+	}
+	if !cfg.NeedsDatabase() {
+		return serveRemote(ctx, stop, &cfg, ident)
+	}
+
 	pool, err := db.Open(ctx, cfg.DatabaseURL)
 	if err != nil {
 		return err
@@ -79,15 +97,52 @@ func serve(cfgPath string) error {
 	if err := db.Migrate(ctx, pool); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(cfg.DataDir, 0o750); err != nil {
-		return fmt.Errorf("data_dir: %w", err)
-	}
 
 	box, err := secret.New(cfg.SecretKey)
 	if err != nil {
 		return err
 	}
 	store := &settings.Store{DB: pool}
+
+	var bus cluster.Bus = cluster.NewLocalBus()
+	if cfg.Cluster.NATS.URL != "" {
+		nb, err := cluster.NewNATSBus(cfg.Cluster, cfg.Node.Name)
+		if err != nil {
+			return err
+		}
+		bus = nb
+		slog.Info("cluster bus connected", "nats", cfg.Cluster.NATS.URL)
+	}
+	defer bus.Close()
+
+	reg := &cluster.Registry{DB: pool, Store: store, Box: box, Bus: bus, Self: ident,
+		Name: cfg.Node.Name, Region: cfg.Node.Region, Roles: cfg.Roles}
+	if cfg.HasRole("relay") {
+		rl, err := startLocalRelay(ctx, &cfg, reg)
+		if err != nil {
+			// The portal stays usable without a relay; sessions then rely on direct
+			// connections and the gateway's WebSocket fallback.
+			slog.Error("relay not started", "err", err)
+		} else {
+			defer rl.Close()
+			reg.RelayURLs = rl.URLs
+			reg.Stats = append(reg.Stats, rl.Stats)
+		}
+	}
+	go reg.Run(ctx)
+	go func() {
+		t := time.NewTicker(time.Hour)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				reg.PruneOffline(ctx, 7*24*time.Hour)
+			}
+		}
+	}()
+
 	recStore, err := sessions.NewStore(cfg.DataDir, cfg.SecretKey)
 	if err != nil {
 		return err
@@ -101,6 +156,8 @@ func serve(cfgPath string) error {
 		Backup:   &backup.Service{DB: pool, Store: store, Box: box, DatabaseURL: cfg.DatabaseURL, DataDir: cfg.DataDir},
 		Sessions: &sessions.Service{DB: pool, Store: store, Rec: recStore},
 		Update:   &update.Service{Store: store, APIURL: cfg.Update.APIURL, Repo: cfg.Update.Repo, Asset: cfg.Update.Asset, Token: cfg.Update.Token, AgentDir: cfg.Gateway.AgentDir},
+		Cluster:  reg,
+		Bus:      bus,
 		Restart: func() {
 			slog.Info("restarting after update")
 			stop()
@@ -111,35 +168,42 @@ func serve(cfgPath string) error {
 		for _, s := range cfg.Gateway.ICEServers {
 			ice = append(ice, agents.ICEServer{URLs: s.URLs, Username: s.Username, Credential: s.Credential})
 		}
-		a.Agents = &agents.Service{DB: pool, Audit: a.Audit, ICE: ice, AgentDir: cfg.Gateway.AgentDir,
+		a.Agents = &agents.Service{DB: pool, Audit: a.Audit, ICE: clusterICE{static: ice, reg: reg}, AgentDir: cfg.Gateway.AgentDir,
 			Sessions: agents.AuditSessionLog{Log: sessionAudit{a.Sessions}}}
 		if err := a.Agents.Start(ctx); err != nil {
 			return err
 		}
 	}
 	if cfg.HasRole("scheduler") {
-		a.Scheduler = &backup.Scheduler{Svc: a.Backup, OnDone: func(kind string, run *backup.Run, err error) {
+		sch := &backup.Scheduler{Svc: a.Backup, OnDone: func(kind string, run *backup.Run, err error) {
 			// Scheduled runs are logged as the system.
 			apiRecord(a, kind, run, err)
 		}}
-		if err := a.Scheduler.Reload(ctx); err != nil {
-			slog.Error("backup schedule", "err", err)
-		}
-		defer a.Scheduler.Stop()
-		go func() {
+		a.Scheduler = sch
+		bus.Subscribe(cluster.EventBackupSettings, func(cluster.Msg) {
+			if err := sch.Reload(context.Background()); err != nil {
+				slog.Error("backup schedule", "err", err)
+			}
+		})
+		// In a cluster only one server runs the scheduled jobs (backups, cleanup).
+		go cluster.RunAsLeader(ctx, pool, cluster.LockScheduler, "scheduler", func(lctx context.Context) {
+			if err := sch.Start(lctx); err != nil {
+				slog.Error("backup schedule", "err", err)
+			}
+			defer sch.Stop()
 			t := time.NewTicker(time.Hour)
 			defer t.Stop()
 			for {
-				if err := a.Sessions.Cleanup(ctx); err != nil && ctx.Err() == nil {
+				if err := a.Sessions.Cleanup(lctx); err != nil && lctx.Err() == nil {
 					slog.Error("session cleanup", "err", err)
 				}
 				select {
-				case <-ctx.Done():
+				case <-lctx.Done():
 					return
 				case <-t.C:
 				}
 			}
-		}()
+		})
 	}
 
 	mux := http.NewServeMux()
@@ -190,6 +254,125 @@ func serve(cfgPath string) error {
 	return srv.Shutdown(shut)
 }
 
+// startLocalRelay runs the relay on a server that also has the database.
+func startLocalRelay(ctx context.Context, cfg *config.Config, reg *cluster.Registry) (*relay.Server, error) {
+	ip, err := relayPublicIP(ctx, cfg, "")
+	if err != nil {
+		return nil, err
+	}
+	rl := &relay.Server{Cfg: cfg.Relay, DataDir: cfg.DataDir, PublicIP: ip, Secrets: func() []string {
+		c, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		s, err := reg.TURNSecrets(c)
+		if err != nil {
+			slog.Error("relay: TURN secrets", "err", err)
+		}
+		return s
+	}}
+	return rl, rl.Start()
+}
+
+// relayPublicIP picks the address peers use to reach the relay: relay.public_ip, the
+// address the control server saw (for joined relays), or the public URL's host.
+func relayPublicIP(ctx context.Context, cfg *config.Config, observed string) (net.IP, error) {
+	if cfg.Relay.PublicIP != "" {
+		return net.ParseIP(cfg.Relay.PublicIP), nil
+	}
+	var ip net.IP
+	if observed != "" {
+		ip = net.ParseIP(observed)
+	} else if u, err := url.Parse(cfg.PublicURL); err == nil && u.Hostname() != "" {
+		ip, _ = relay.DetectPublicIP(ctx, u.Hostname())
+	}
+	if ip == nil || ip.IsPrivate() || ip.IsLoopback() || ip.IsUnspecified() {
+		return nil, fmt.Errorf("cannot determine the relay's public IP (found %v); set relay.public_ip", ip)
+	}
+	return ip, nil
+}
+
+// serveRemote runs a server without a database: a relay that joined a control server.
+func serveRemote(ctx context.Context, stop context.CancelFunc, cfg *config.Config, ident *cluster.Identity) error {
+	rem := &cluster.Remote{Cfg: cfg, Self: ident, DataDir: cfg.DataDir, AllowInsecure: cfg.AllowInsecureHTTP}
+	upd := &update.Service{APIURL: cfg.Update.APIURL, Repo: cfg.Update.Repo, Asset: cfg.Update.Asset, Token: cfg.Update.Token}
+	var rl *relay.Server
+	if cfg.HasRole("relay") {
+		rl = &relay.Server{Cfg: cfg.Relay, DataDir: cfg.DataDir, Secrets: rem.TURNSecrets}
+		rem.RelayURLs = rl.URLs
+		rem.Stats = append(rem.Stats, rl.Stats)
+	}
+	hb, err := rem.Connect(ctx)
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil
+		}
+		return err
+	}
+	if rl != nil {
+		ip, err := relayPublicIP(ctx, cfg, hb.ObservedIP)
+		if err != nil {
+			return err
+		}
+		rl.PublicIP = ip
+		if err := rl.Start(); err != nil {
+			return err
+		}
+		defer rl.Close()
+		if err := rem.Refresh(ctx); err != nil {
+			slog.Warn("heartbeat failed", "err", err)
+		}
+	}
+
+	// Follow the control server's version so the whole installation is updated from
+	// one place. Attempts are spaced out so a broken release is not retried in a loop.
+	var lastTry time.Time
+	rem.OnUpdate = func(v, channel string) {
+		if time.Since(lastTry) < 15*time.Minute {
+			return
+		}
+		lastTry = time.Now()
+		slog.Info("control server runs another version, updating", "from", version.Version, "to", v)
+		uctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+		defer cancel()
+		if _, err := upd.ApplyVersion(uctx, v); err != nil {
+			slog.Error("update failed", "to", v, "err", err)
+			return
+		}
+		slog.Info("update installed, restarting", "version", v)
+		stop()
+	}
+
+	fatal := make(chan error, 1)
+	go rem.Run(ctx, func(err error) {
+		fatal <- err
+		stop()
+	})
+
+	// Health check for local monitoring only; nothing is exposed in plain text.
+	_, port, _ := net.SplitHostPort(cfg.Listen)
+	if port == "" {
+		port = "8080"
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) })
+	srv := &http.Server{Addr: net.JoinHostPort("127.0.0.1", port), Handler: mux, ReadHeaderTimeout: 5 * time.Second}
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			slog.Warn("health endpoint", "err", err)
+		}
+	}()
+	slog.Info("running as remote server", "control", cfg.Join.ControlURL, "node_id", ident.ID, "roles", cfg.Roles)
+	<-ctx.Done()
+	shut, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	srv.Shutdown(shut)
+	select {
+	case err := <-fatal:
+		return err
+	default:
+		return nil
+	}
+}
+
 func apiRecord(a *api.API, kind string, run *backup.Run, err error) {
 	a.RecordBackup(context.Background(), audit.Actor{}, kind, run, err)
 }
@@ -218,4 +401,25 @@ func (s sessionAudit) StartSession(ctx context.Context, p agents.StartParams) (i
 		return 0, false, err
 	}
 	return sess.ID, sess.MustRecord(), nil
+}
+
+// clusterICE hands out the configured ICE servers plus the cluster's TURN relays, each
+// with a fresh short-lived credential.
+type clusterICE struct {
+	static agents.StaticICE
+	reg    *cluster.Registry
+}
+
+func (c clusterICE) ICEServers(ctx context.Context, tag string) ([]agents.ICEServer, error) {
+	out := append([]agents.ICEServer{}, c.static...)
+	relays, err := c.reg.ICEServers(ctx, tag)
+	if err != nil {
+		// A session can still run peer to peer or over the HTTPS relay.
+		slog.Warn("no TURN relays for session", "err", err)
+		return out, nil
+	}
+	for _, r := range relays {
+		out = append(out, agents.ICEServer{URLs: r.URLs, Username: r.Username, Credential: r.Credential})
+	}
+	return out, nil
 }
