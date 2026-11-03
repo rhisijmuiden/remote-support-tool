@@ -17,12 +17,13 @@ import (
 //	web, api   portal and JSON API (needs the database)
 //	scheduler  scheduled backups; in a cluster only the elected leader runs it
 //	relay      TURN/TURNS media relay; can run on its own without a database
+//	gateway    Windows agents: enrollment, control channels and remote sessions
 //	update     agent updates (/api/agent/v1/update, /files) and installer download links (/d/)
-var KnownRoles = []string{"web", "api", "scheduler", "relay", "update"}
+var KnownRoles = []string{"web", "api", "scheduler", "relay", "gateway", "update"}
 
 // DatabaseRoles need a database connection. A node with only other roles joins a
 // control server over HTTPS instead.
-var DatabaseRoles = []string{"web", "api", "scheduler", "update"}
+var DatabaseRoles = []string{"web", "api", "scheduler", "gateway", "update"}
 
 type Config struct {
 	Listen      string   `yaml:"listen"`       // e.g. ":8080" (behind a reverse proxy) or ":443"
@@ -61,7 +62,14 @@ type Config struct {
 	// the real client address. Loopback is always trusted.
 	TrustedProxies []string `yaml:"trusted_proxies"`
 	trustedNets    []*net.IPNet
-	Branding       struct {
+	// Gateway is the role that Windows agents connect to.
+	Gateway struct {
+		// AgentDir holds rhis-agent_windows_amd64.exe for the download link in the portal.
+		AgentDir string `yaml:"agent_dir"`
+		// ICEServers are STUN/TURN servers handed to both sides of a session.
+		ICEServers []ICEServer `yaml:"ice_servers"`
+	} `yaml:"gateway"`
+	Branding struct {
 		ProductName string `yaml:"product_name"`
 		CompanyName string `yaml:"company_name"`
 	} `yaml:"branding"`
@@ -112,6 +120,13 @@ type RelayConfig struct {
 	AllowPrivatePeers bool `yaml:"allow_private_peers"`
 }
 
+// ICEServer is a STUN or TURN server (urls like "stun:host:3478" or "turns:host:443").
+type ICEServer struct {
+	URLs       []string `yaml:"urls"`
+	Username   string   `yaml:"username"`
+	Credential string   `yaml:"credential"`
+}
+
 func Default() Config {
 	var c Config
 	c.Listen = "127.0.0.1:8080"
@@ -121,6 +136,7 @@ func Default() Config {
 	c.Update.Repo = "rhisijmuiden/remote-support-tool"
 	c.Update.Asset = "rhis-remote_linux_amd64.tar.gz"
 	c.Update.APIURL = "https://api.github.com"
+	c.Gateway.AgentDir = "/opt/rhis-remote/agent"
 	c.Agents.SyncInterval = "1h"
 	c.Agents.Keep = 5
 	c.Branding.ProductName = "RHIS Remote"

@@ -23,6 +23,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
+	"github.com/rhisijmuiden/remote-support-tool/server/internal/agents"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/agentupdate"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/api"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/audit"
@@ -121,7 +122,7 @@ func serve(cfgPath string) error {
 	if agentsRepo == "" {
 		agentsRepo = cfg.Update.Repo
 	}
-	agents := &agentupdate.Service{DB: pool, Store: store, Signer: signer, Code: code, DataDir: cfg.DataDir,
+	agentUpd := &agentupdate.Service{DB: pool, Store: store, Signer: signer, Code: code, DataDir: cfg.DataDir,
 		APIURL: cfg.Update.APIURL, Repo: agentsRepo, Token: cfg.Update.Token, Keep: cfg.Agents.Keep}
 
 	var bus cluster.Bus = cluster.NewLocalBus()
@@ -174,17 +175,29 @@ func serve(cfgPath string) error {
 		Audit:    &audit.Log{DB: pool},
 		Mail:     &mail.Service{Store: store, Box: box},
 		Backup:   &backup.Service{DB: pool, Store: store, Box: box, DatabaseURL: cfg.DatabaseURL, DataDir: cfg.DataDir},
-		Builder:  &builder.Service{DB: pool, Box: box, Src: agents, DataDir: cfg.DataDir},
-		Agents:   agents,
+		Builder:  &builder.Service{DB: pool, Box: box, Src: agentUpd, DataDir: cfg.DataDir},
+		Agents:   agentUpd,
 		CodeSign: code,
 		Sessions: &sessions.Service{DB: pool, Store: store, Rec: recStore},
-		Update:   &update.Service{Store: store, APIURL: cfg.Update.APIURL, Repo: cfg.Update.Repo, Asset: cfg.Update.Asset, Token: cfg.Update.Token},
+		Update:   &update.Service{Store: store, APIURL: cfg.Update.APIURL, Repo: cfg.Update.Repo, Asset: cfg.Update.Asset, Token: cfg.Update.Token, AgentDir: cfg.Gateway.AgentDir},
 		Cluster:  reg,
 		Bus:      bus,
 		Restart: func() {
 			slog.Info("restarting after update")
 			stop()
 		},
+	}
+	if cfg.HasRole("gateway") {
+		ice := agents.StaticICE{}
+		for _, s := range cfg.Gateway.ICEServers {
+			ice = append(ice, agents.ICEServer{URLs: s.URLs, Username: s.Username, Credential: s.Credential})
+		}
+		a.Gateway = &agents.Service{DB: pool, Audit: a.Audit, ICE: clusterICE{static: ice, reg: reg}, AgentDir: cfg.Gateway.AgentDir,
+			Sessions:  agents.AuditSessionLog{Log: sessionAudit{a.Sessions}},
+			Resolvers: []agents.EnrollResolver{a.Builder.ResolveEnrollToken}}
+		if err := a.Gateway.Start(ctx); err != nil {
+			return err
+		}
 	}
 	if cfg.HasRole("scheduler") {
 		sch := &backup.Scheduler{Svc: a.Backup, OnDone: func(kind string, run *backup.Run, err error) {
@@ -205,7 +218,7 @@ func serve(cfgPath string) error {
 			defer sch.Stop()
 			// Agent releases are imported by the same single leader.
 			if every, err := time.ParseDuration(cfg.Agents.SyncInterval); err == nil && every > 0 {
-				go agents.RunSync(lctx, every)
+				go agentUpd.RunSync(lctx, every)
 			}
 			t := time.NewTicker(time.Hour)
 			defer t.Stop()
@@ -230,16 +243,25 @@ func serve(cfgPath string) error {
 		}
 		w.Write([]byte("ok"))
 	})
+	// One router for everything agents call; each role mounts its routes on it.
+	agentAPI := chi.NewRouter()
+	agentAPI.Use(middleware.Recoverer, api.TrustedProxyIP(cfg.IsTrustedProxy))
+	if a.Gateway != nil {
+		a.Gateway.MountAgentRoutes(agentAPI)
+	}
+	if cfg.HasRole("update") {
+		var auth agentupdate.DeviceAuth = agentupdate.SQLDeviceAuth{S: agentUpd}
+		if a.Gateway != nil {
+			auth = a.Gateway
+		}
+		h := &agentupdate.Handler{S: agentUpd, Auth: auth, PublicURL: cfg.PublicURL}
+		h.Mount(agentAPI)
+	}
+	mux.Handle("/api/agent/v1/", http.StripPrefix("/api/agent/v1", agentAPI))
 	if cfg.HasRole("api") {
 		mux.Handle("/api/", http.StripPrefix("/api", a.Routes()))
 	}
 	if cfg.HasRole("update") {
-		// Agent endpoints authenticate with a device token, not a portal session.
-		ar := chi.NewRouter()
-		ar.Use(middleware.Recoverer)
-		h := &agentupdate.Handler{S: agents, Auth: agentupdate.SQLDeviceAuth{S: agents}, PublicURL: cfg.PublicURL}
-		ar.Route("/api/agent/v1", h.Mount)
-		mux.Handle("/api/agent/v1/", ar)
 		mux.HandleFunc("GET /d/{token}", a.PublicDownload)
 	}
 	if cfg.HasRole("web") {
@@ -407,4 +429,37 @@ func securityHeaders(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// sessionAudit lets the gateway write its sessions to the session audit log.
+type sessionAudit struct{ *sessions.Service }
+
+func (s sessionAudit) StartSession(ctx context.Context, p agents.StartParams) (int64, bool, error) {
+	sess, err := s.Start(ctx, sessions.StartParams{DeviceID: p.DeviceID, UserID: p.UserID, Kind: p.Kind,
+		Transport: p.Transport, ViewerIP: p.ViewerIP, Record: p.Record})
+	if err != nil {
+		return 0, false, err
+	}
+	return sess.ID, sess.MustRecord(), nil
+}
+
+// clusterICE hands out the configured ICE servers plus the cluster's TURN relays, each
+// with a fresh short-lived credential.
+type clusterICE struct {
+	static agents.StaticICE
+	reg    *cluster.Registry
+}
+
+func (c clusterICE) ICEServers(ctx context.Context, tag string) ([]agents.ICEServer, error) {
+	out := append([]agents.ICEServer{}, c.static...)
+	relays, err := c.reg.ICEServers(ctx, tag)
+	if err != nil {
+		// A session can still run peer to peer or over the HTTPS relay.
+		slog.Warn("no TURN relays for session", "err", err)
+		return out, nil
+	}
+	for _, r := range relays {
+		out = append(out, agents.ICEServer{URLs: r.URLs, Username: r.Username, Credential: r.Credential})
+	}
+	return out, nil
 }

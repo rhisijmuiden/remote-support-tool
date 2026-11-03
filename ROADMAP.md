@@ -7,7 +7,7 @@ Every phase has a tracking issue labelled `roadmap` on GitHub. Detailed tasks ar
 | Phase | Status | Target version | Issue |
 | --- | --- | --- | --- |
 | 1. Server foundation | Done | v0.1 | #4 |
-| 2. Windows agent and connectivity | Next | v0.2 | #5 |
+| 2. Windows agent and connectivity | In test | v0.2 | #5 |
 | 3. Quick support client | Planned | v0.3 | #6 |
 | 4. Session audit and recording | In progress | v0.4 | #7 |
 | 5. Client builder and central updates | In progress | v0.5 | #8 |
@@ -27,18 +27,24 @@ Released as `v0.1.0-test.1`.
 - [x] Info screen with version, update check, production/test channel switch and one-click update from GitHub releases
 - [x] CI and release pipeline (test pre-releases from `test`, releases from `main`)
 
-## 2. Windows agent and connectivity (next)
+## 2. Windows agent and connectivity (in test)
 
-The core of the product: reach a Windows machine behind any NAT router and control it from the browser.
+The core of the product: reach a Windows machine behind any NAT router and control it from the browser. In test as v0.2; the Windows build compiles and passes CI but still needs a run on real Windows 11 and Windows Server hardware.
 
-- [ ] Rust agent for Windows 11 and Windows Server 2019/2022/2025, running as a Windows service
-- [ ] Device enrollment with a per-customer enrollment key; devices and customers appear in the portal
-- [ ] Heartbeat and online/offline status; dashboard counts and "offline for more than 7 days"
-- [ ] Outbound-only connection from the agent to the server (WebSocket over 443), so no port forwarding is needed at the client
-- [ ] New `gateway` and `relay` server roles: signaling for WebRTC, TURN relay as fallback when a direct connection is not possible
-- [ ] Browser viewer in the portal: screen, mouse, keyboard, multi-monitor, clipboard
-- [ ] Unattended access with per-device permissions, plus attended mode with a consent prompt
-- [ ] Hardware and OS inventory per device
+- [x] Rust agent for Windows 11 and Windows Server 2019/2022/2025, running as a Windows service (LocalSystem, restart on failure)
+- [x] Device enrollment with an enrollment token, optionally tied to a customer; devices and customers appear in the portal
+- [x] Heartbeat and online/offline status; dashboard counts and "offline for more than 7 days"
+- [x] Outbound-only connection from the agent to the server (WSS over 443), so no port forwarding is needed at the client; works behind a reverse proxy such as Zoraxy
+- [x] All agent traffic encrypted: TLS only (optional certificate pin), DTLS-SRTP media, tokens stored hashed on the server and DPAPI-encrypted on the PC
+- [x] New `gateway` and `relay` server roles: signaling for WebRTC, TURN relay as fallback, and an encrypted WebSocket relay over 443 as last resort
+- [x] Browser viewer in the portal: screen, mouse, keyboard, multi-monitor, Ctrl+Alt+Del, sign-in and UAC screens, view-only, full screen
+- [x] Unattended access, with a banner for the local user while a session runs
+- [x] Build-signing hook for the agent (Authenticode certificate can be plugged in via repository secrets)
+- [ ] Test on real Windows 11 and Windows Server hardware
+- [ ] Clipboard sync and file transfer
+- [ ] Per-device permissions and attended mode with a consent prompt
+- [ ] Hardware and OS inventory per device (hostname, OS version and last user are in already)
+- [ ] Faster capture with DXGI Desktop Duplication (GDI for now)
 
 ## 3. Quick support client
 
@@ -51,7 +57,7 @@ A one-off client for ad-hoc support, without installation.
 
 ## 4. Session audit and recording (in progress)
 
-Server and portal side are done; recording starts working end to end once the browser viewer from phase 2 calls the recorder. Details in [docs/session-recording.md](docs/session-recording.md).
+Server, portal and the browser viewer are wired up; agent sessions are logged and recorded through this service. Details in [docs/session-recording.md](docs/session-recording.md).
 
 - [x] Session log: who connected to which device, when, how long and from where, with a timeline per session (connection type, file transfers, elevation, views and shares)
 - [x] Filter by device, customer, date, technician; technicians see only their own sessions; CSV export
@@ -60,8 +66,8 @@ Server and portal side are done; recording starts working end to end once the br
 - [x] Recordings stored encrypted (AES-256-GCM per chunk) in the data folder, included in backups
 - [x] Playback with seeking, download, delete, automatic retention
 - [x] Private share links for customers: expiring, revocable, every view logged
-- [ ] Hook the recorder into the browser viewer (phase 2)
-- [ ] "This session is being recorded" banner on the Windows side (phase 2 agent)
+- [x] Hook the recorder into the browser viewer (phase 2)
+- [x] "This session is being recorded" banner on the Windows side (phase 2 agent)
 - [ ] Per-customer or per-device recording policy override
 
 ## 5. Client builder and central updates (in progress)

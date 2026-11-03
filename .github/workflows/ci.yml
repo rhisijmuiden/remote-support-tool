@@ -47,4 +47,38 @@ jobs:
         run: |
           test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
           go vet ./...
-          go test ./...
+          go test -p 1 ./... # packages share one test database; the backup test dumps all of it
+
+  client-linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: client
+      - name: Client (Linux, test screen)
+        working-directory: client
+        run: |
+          cargo fmt --all --check
+          cargo clippy --all-targets -- -D warnings
+          cargo test
+
+  client-windows:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: client
+      - name: Client (Windows)
+        working-directory: client
+        run: |
+          cargo clippy --all-targets -- -D warnings
+          cargo test
+          cargo build --release

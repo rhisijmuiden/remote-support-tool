@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -67,6 +68,8 @@ type Service struct {
 	HTTP   *http.Client
 	// Executable is the binary to replace; defaults to os.Executable().
 	Executable string
+	// AgentDir receives the client downloads (agent/ in the release archive), if set.
+	AgentDir string
 
 	mu   sync.Mutex
 	last *Status
@@ -277,7 +280,13 @@ func applyRelease(ctx context.Context, s *Service, rel *Release) error {
 	}
 	defer resp.Body.Close()
 	h := sha256.New()
-	if err := extractBinary(io.TeeReader(resp.Body, h), tmp); err != nil {
+	staged, err := extractRelease(io.TeeReader(resp.Body, h), tmp, s.AgentDir)
+	defer func() {
+		for _, f := range staged {
+			os.Remove(f.tmp)
+		}
+	}()
+	if err != nil {
 		tmp.Close()
 		return err
 	}
@@ -293,6 +302,12 @@ func applyRelease(ctx context.Context, s *Service, rel *Release) error {
 	}
 	if err := tmp.Close(); err != nil {
 		return err
+	}
+	// The archive is verified: put the new client downloads in place.
+	for _, f := range staged {
+		if err := os.Rename(f.tmp, f.final); err != nil {
+			return fmt.Errorf("install %s: %w", filepath.Base(f.final), err)
+		}
 	}
 	// Keep the previous binary for a manual rollback.
 	os.Remove(exe + ".previous")
@@ -318,36 +333,63 @@ func (s *Service) checksum(ctx context.Context, url string) (string, error) {
 	return "", errors.New("checksum for asset not found")
 }
 
-// extractBinary copies the "rhis-remote" file from a tar.gz stream to dst.
-func extractBinary(r io.Reader, dst io.Writer) error {
+type stagedFile struct{ tmp, final string }
+
+// extractRelease copies the "rhis-remote" binary from a tar.gz stream to dst, and the files
+// under agent/ to temporary files in agentDir (renamed into place once the checksum matches).
+func extractRelease(r io.Reader, dst io.Writer, agentDir string) ([]stagedFile, error) {
 	gz, err := gzip.NewReader(r)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	tr := tar.NewReader(gz)
+	var staged []stagedFile
+	found := false
 	for {
 		h, err := tr.Next()
 		if err == io.EOF {
-			return errors.New("binary not found in release archive")
+			break
 		}
 		if err != nil {
-			return err
+			return staged, err
 		}
-		if filepath.Base(h.Name) == "rhis-remote" && h.Typeflag == tar.TypeReg {
-			_, err := io.Copy(dst, io.LimitReader(tr, 512<<20))
+		if h.Typeflag != tar.TypeReg {
+			continue
+		}
+		name := strings.TrimPrefix(filepath.ToSlash(h.Name), "./")
+		switch {
+		case name == "rhis-remote":
+			if _, err := io.Copy(dst, io.LimitReader(tr, 512<<20)); err != nil {
+				return staged, err
+			}
+			found = true
+		case agentDir != "" && strings.HasPrefix(name, "agent/") && !strings.Contains(name[6:], "/") && len(name) > 6:
+			// Older installs cannot write the agent folder (systemd ReadWritePaths); the server
+			// update still goes ahead and install.sh fixes the folder on its next run.
+			os.MkdirAll(agentDir, 0o755)
+			f, err := os.CreateTemp(agentDir, ".update-*")
 			if err != nil {
-				return err
+				slog.Warn("cannot update the client downloads", "dir", agentDir, "err", err)
+				agentDir = ""
+				continue
 			}
-			// Read to the end of the gzip stream so the caller's hash sees all bytes.
-			io.Copy(io.Discard, tr)
-			for {
-				if _, err := tr.Next(); err != nil {
-					break
-				}
+			staged = append(staged, stagedFile{tmp: f.Name(), final: filepath.Join(agentDir, name[6:])})
+			_, err = io.Copy(f, io.LimitReader(tr, 256<<20))
+			if cerr := f.Close(); err == nil {
+				err = cerr
 			}
-			return nil
+			if err != nil {
+				return staged, err
+			}
+			os.Chmod(f.Name(), 0o644)
 		}
 	}
+	// Read to the end of the gzip stream so the caller's hash sees all bytes.
+	io.Copy(io.Discard, gz)
+	if !found {
+		return staged, errors.New("binary not found in release archive")
+	}
+	return staged, nil
 }
 
 func copyFile(src, dst string) error {

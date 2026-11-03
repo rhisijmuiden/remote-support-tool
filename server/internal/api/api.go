@@ -16,6 +16,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/rhisijmuiden/remote-support-tool/server/internal/agents"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/agentupdate"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/audit"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/auth"
@@ -41,6 +42,7 @@ type API struct {
 	Update    *update.Service
 	Builder   *builder.Service
 	Agents    *agentupdate.Service
+	Gateway   *agents.Service // nil when this server does not run the gateway role
 	CodeSign  *codesign.Service
 	Sessions  *sessions.Service
 	Cluster   *cluster.Registry
@@ -81,6 +83,9 @@ func (a *API) Routes() http.Handler {
 		r.Get("/devices", a.devices)
 		r.Get("/customers", a.customers)
 		r.Get("/system/info", a.systemInfo)
+		if a.Gateway != nil {
+			a.Gateway.PortalRoutes(r)
+		}
 		a.builderRoutes(r)
 		r.Get("/sessions", a.listSessions)
 		r.Get("/sessions/export.csv", a.exportSessions)
@@ -175,6 +180,11 @@ func actor(r *http.Request) audit.Actor {
 		a.UserID, a.Email = u.ID, u.Email
 	}
 	return a
+}
+
+// TrustedProxyIP is trustedProxyIP for routers outside this package (the agent API).
+func TrustedProxyIP(trusted func(net.IP) bool) func(http.Handler) http.Handler {
+	return trustedProxyIP(trusted)
 }
 
 // trustedProxyIP finds the real client address. Forwarding headers are only believed
@@ -416,7 +426,7 @@ func (a *API) dashboard(w http.ResponseWriter, r *http.Request) {
 		LastBackup     *backup.Run `json:"last_backup"`
 	}
 	err := a.DB.QueryRow(ctx, `SELECT count(*), count(*) FILTER (WHERE online), count(*) FILTER (WHERE NOT online),
-		count(*) FILTER (WHERE NOT online AND (last_seen_at IS NULL OR last_seen_at < now() - interval '7 days')) FROM devices`).
+		count(*) FILTER (WHERE NOT online AND (last_seen_at IS NULL OR last_seen_at < now() - interval '7 days')) FROM devices WHERE kind='agent'`).
 		Scan(&out.Clients, &out.Online, &out.Offline, &out.OfflineWeek)
 	if err == nil {
 		err = a.DB.QueryRow(ctx, `SELECT count(*) FROM remote_sessions WHERE ended_at IS NULL`).Scan(&out.ActiveSessions)
@@ -436,7 +446,7 @@ func (a *API) dashboard(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) devices(w http.ResponseWriter, r *http.Request) {
 	rows, err := a.DB.Query(r.Context(), `SELECT d.id, d.device_code, d.hostname, d.os_version, d.agent_version, d.last_user, d.last_seen_at, d.online, c.name
-		FROM devices d LEFT JOIN customers c ON c.id=d.customer_id ORDER BY d.online DESC, d.hostname`)
+		FROM devices d LEFT JOIN customers c ON c.id=d.customer_id WHERE d.kind='agent' ORDER BY d.online DESC, d.hostname`)
 	if err != nil {
 		fail(w, 500, "internal", err)
 		return
@@ -467,7 +477,7 @@ func (a *API) devices(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) customers(w http.ResponseWriter, r *http.Request) {
 	rows, err := a.DB.Query(r.Context(), `SELECT c.id, c.name, count(d.id), count(d.id) FILTER (WHERE d.online)
-		FROM customers c LEFT JOIN devices d ON d.customer_id=c.id GROUP BY c.id ORDER BY c.name`)
+		FROM customers c LEFT JOIN devices d ON d.customer_id=c.id AND d.kind='agent' GROUP BY c.id ORDER BY c.name`)
 	if err != nil {
 		fail(w, 500, "internal", err)
 		return

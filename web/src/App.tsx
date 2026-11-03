@@ -15,6 +15,7 @@ import { BackupSettings } from "./pages/BackupSettings";
 import { AuditLog } from "./pages/AuditLog";
 import { Servers } from "./pages/Servers";
 import { Account } from "./pages/Account";
+import { Remote } from "./pages/Remote";
 import { BuildDetail, Builds } from "./pages/Builds";
 import { AgentUpdates } from "./pages/AgentUpdates";
 import { CodeSigning } from "./pages/CodeSigning";
@@ -39,6 +40,7 @@ function Portal() {
   const { t } = useTranslation();
   const [meta, setMeta] = useState<Meta | null>(null);
   const [user, setUser] = useState<User | null | undefined>(undefined);
+  const loc = useLocation();
 
   useEffect(() => {
     api.get<Meta>("/meta").then((m) => {
@@ -64,6 +66,16 @@ function Portal() {
     );
   }
   const admin = user.role === "admin";
+  // The remote viewer uses the whole window, without the menu.
+  if (loc.pathname.startsWith("/remote/")) {
+    return (
+      <SessionContext.Provider value={{ user, meta, setUser }}>
+        <Routes>
+          <Route path="/remote/:sid" element={<Remote />} />
+        </Routes>
+      </SessionContext.Provider>
+    );
+  }
   return (
     <SessionContext.Provider value={{ user, meta, setUser }}>
       <Layout>
