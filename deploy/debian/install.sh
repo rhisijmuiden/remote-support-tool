@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
 # Install RHIS Remote on Debian 13 (trixie).
 #
-#   sudo ./install.sh                         # latest production release, reachable on http://<ip>:8080
-#   sudo ./install.sh --domain remote.rhis.nl # also installs Caddy for HTTPS with Let's Encrypt
+#   sudo ./install.sh                         # latest production release on https://<server-ip> (internal certificate)
+#   sudo ./install.sh --domain remote.rhis.nl # HTTPS with a free Let's Encrypt certificate
 #   sudo ./install.sh --channel test          # latest test pre-release
 #   sudo ./install.sh --binary ./rhis-remote  # install a binary you built yourself
+#
+# All traffic is encrypted: Caddy terminates HTTPS on port 443 and the server itself only
+# listens on 127.0.0.1. Without --domain, Caddy's own internal CA issues the certificate;
+# the installer prints its fingerprint so you can check it or trust it in your browser.
 #
 # Running it again upgrades the binary and keeps the configuration and database.
 set -euo pipefail
@@ -31,7 +35,7 @@ say() { printf '\n\033[1;38;2;255;107;87m==>\033[0m %s\n' "$*"; }
 say "Installing packages"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq postgresql postgresql-client ca-certificates curl jq openssl >/dev/null
+apt-get install -y -qq postgresql postgresql-client ca-certificates curl jq openssl caddy >/dev/null
 
 say "Creating user and folders"
 id rhis-remote >/dev/null 2>&1 || useradd --system --home /var/lib/rhis-remote --shell /usr/sbin/nologin rhis-remote
@@ -69,9 +73,10 @@ if [[ ! -f /etc/rhis-remote/config.yaml ]]; then
   fi
   runuser -u postgres -- psql -tAc "SELECT 1 FROM pg_database WHERE datname='rhis_remote'" | grep -q 1 \
     || runuser -u postgres -- createdb -O rhis_remote rhis_remote
-  if [[ -n "$DOMAIN" ]]; then listen="127.0.0.1:8080"; url="https://$DOMAIN"; else listen=":8080"; url="http://$(hostname -I | awk '{print $1}'):8080"; fi
+  if [[ -n "$DOMAIN" ]]; then url="https://$DOMAIN"; else url="https://$(hostname -I | awk '{print $1}')"; fi
   cat > /etc/rhis-remote/config.yaml <<CFG
-listen: "$listen"
+# Only reachable through Caddy (HTTPS). Never expose this port directly.
+listen: "127.0.0.1:8080"
 public_url: "$url"
 database_url: "postgres://rhis_remote:$dbpass@localhost/rhis_remote?sslmode=disable"
 data_dir: "/var/lib/rhis-remote/data"
@@ -87,6 +92,11 @@ branding:
 CFG
   chown root:rhis-remote /etc/rhis-remote/config.yaml
   chmod 0640 /etc/rhis-remote/config.yaml
+elif grep -qE '^listen: "(:|0\.0\.0\.0:)8080"' /etc/rhis-remote/config.yaml && ! grep -q '^allow_insecure_http: true' /etc/rhis-remote/config.yaml; then
+  say "Moving the existing installation behind HTTPS"
+  sed -i -E 's|^listen: .*|listen: "127.0.0.1:8080"|' /etc/rhis-remote/config.yaml
+  if [[ -n "$DOMAIN" ]]; then url="https://$DOMAIN"; else url="https://$(hostname -I | awk '{print $1}')"; fi
+  sed -i -E "s|^public_url: .*|public_url: \"$url\"|" /etc/rhis-remote/config.yaml
 fi
 
 say "Installing the service"
@@ -100,17 +110,31 @@ systemctl daemon-reload
 systemctl enable --now rhis-remote >/dev/null
 systemctl restart rhis-remote
 
+say "Setting up HTTPS with Caddy"
+ip="$(hostname -I | awk '{print $1}')"
 if [[ -n "$DOMAIN" ]]; then
-  say "Setting up HTTPS with Caddy for $DOMAIN"
-  apt-get install -y -qq caddy >/dev/null
   cat > /etc/caddy/Caddyfile <<CADDY
+# Managed by the RHIS Remote installer. HTTPS with Let's Encrypt for $DOMAIN.
 $DOMAIN {
 	encode zstd gzip
 	reverse_proxy 127.0.0.1:8080
 }
 CADDY
-  systemctl reload caddy || systemctl restart caddy
+else
+  cat > /etc/caddy/Caddyfile <<CADDY
+# Managed by the RHIS Remote installer. HTTPS with Caddy's internal CA (no public domain).
+{
+	default_sni $ip
+}
+https://$ip, https://$(hostname) {
+	tls internal
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:8080
+}
+CADDY
 fi
+systemctl enable --now caddy >/dev/null
+systemctl reload caddy || systemctl restart caddy
 
 for i in $(seq 1 30); do
   curl -fsS http://127.0.0.1:8080/healthz >/dev/null 2>&1 && break
@@ -118,6 +142,18 @@ for i in $(seq 1 30); do
 done
 if curl -fsS http://127.0.0.1:8080/healthz >/dev/null 2>&1; then
   url="$(grep '^public_url:' /etc/rhis-remote/config.yaml | cut -d'"' -f2)"
+  if [[ -z "$DOMAIN" ]]; then
+    curl -sk -o /dev/null "https://$ip/" || true
+    root=/var/lib/caddy/.local/share/caddy/pki/authorities/local/root.crt
+    for i in $(seq 1 10); do [[ -f "$root" ]] && break; sleep 1; done
+    if [[ -f "$root" ]]; then
+      echo
+      echo "The certificate comes from this server's own CA. Your browser warns until you trust it."
+      echo "Root CA: $root"
+      echo "SHA-256 fingerprint: $(openssl x509 -in "$root" -noout -fingerprint -sha256 | cut -d= -f2)"
+      echo "Import that file as a trusted root on your PC, or use --domain with a public DNS name."
+    fi
+  fi
   say "RHIS Remote is running. Open $url to create the first administrator."
 else
   echo "The service did not come up. Check: journalctl -u rhis-remote -n 50" >&2

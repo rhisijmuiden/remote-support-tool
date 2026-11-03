@@ -17,12 +17,14 @@ Self-hosted remote support for Windows: remote control with unattended access, a
 
 ```bash
 curl -fsSLO https://raw.githubusercontent.com/rhisijmuiden/remote-support-tool/main/deploy/debian/install.sh
-sudo bash install.sh --domain remote.example.com   # HTTPS via Caddy and Let's Encrypt
-# or: sudo bash install.sh                         # http://<server-ip>:8080
+sudo bash install.sh --domain remote.example.com   # HTTPS with a Let's Encrypt certificate
+# or: sudo bash install.sh                         # https://<server-ip> with an internal certificate
 # or: sudo bash install.sh --channel test          # newest test pre-release
 ```
 
-The installer sets up PostgreSQL, a `rhis-remote` system user, `/etc/rhis-remote/config.yaml`, and a hardened systemd service. Open the URL it prints and create the first administrator.
+The installer sets up PostgreSQL, Caddy, a `rhis-remote` system user, `/etc/rhis-remote/config.yaml`, and a hardened systemd service. Open the URL it prints and create the first administrator.
+
+**All traffic is encrypted.** Caddy serves HTTPS on port 443 (HTTP only redirects) and the server itself listens on `127.0.0.1` only. Without `--domain`, Caddy's internal CA issues the certificate; the installer prints the root CA path and SHA-256 fingerprint so you can verify it and trust it on your PCs. The server refuses to start with a plain-HTTP `public_url` or a non-loopback listen address without TLS, unless `allow_insecure_http: true` is set for a lab.
 
 ## Branches and releases
 
@@ -42,7 +44,7 @@ make web                       # build the portal into the Go binary
 make server                    # bin/rhis-remote
 RHIS_REMOTE_DATABASE_URL=postgres://localhost/rhis_dev?sslmode=disable \
 RHIS_REMOTE_SECRET_KEY=$(./bin/rhis-remote gen-secret) \
-RHIS_REMOTE_DATA_DIR=./data ./bin/rhis-remote serve --config config.local.yaml
+RHIS_REMOTE_DATA_DIR=./data ./bin/rhis-remote serve --config config.local.yaml   # http://127.0.0.1:8080
 cd web && npm run dev          # portal with hot reload on :5173, API proxied to :8080
 RHIS_TEST_DATABASE_URL=postgres://localhost/rhis_test?sslmode=disable make test
 ```

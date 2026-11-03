@@ -50,7 +50,7 @@ type API struct {
 // Routes returns the /api router.
 func (a *API) Routes() http.Handler {
 	r := chi.NewRouter()
-	r.Use(middleware.RequestID, middleware.RealIP, middleware.Recoverer, csrf)
+	r.Use(middleware.RequestID, trustedProxyIP, middleware.Recoverer, csrf)
 	r.Get("/meta", a.meta)
 	r.Post("/setup", a.setup)
 	r.Post("/login", a.login)
@@ -139,6 +139,26 @@ func actor(r *http.Request) audit.Actor {
 		a.UserID, a.Email = u.ID, u.Email
 	}
 	return a
+}
+
+// trustedProxyIP takes the client address from X-Forwarded-For / X-Real-IP only when the
+// request comes from the local reverse proxy (Caddy on the same machine). Anyone else could
+// spoof these headers to dodge the login rate limit or fake the activity log.
+func trustedProxyIP(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host, _, err := net.SplitHostPort(r.RemoteAddr)
+		if ip := net.ParseIP(host); err == nil && ip != nil && ip.IsLoopback() {
+			fwd := r.Header.Get("X-Real-IP")
+			if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+				parts := strings.Split(xff, ",")
+				fwd = strings.TrimSpace(parts[len(parts)-1]) // the address the proxy itself saw
+			}
+			if net.ParseIP(fwd) != nil {
+				r.RemoteAddr = net.JoinHostPort(fwd, "0")
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // csrf requires a custom header on state-changing requests. Browsers cannot send it
