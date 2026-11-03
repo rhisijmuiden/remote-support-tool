@@ -34,7 +34,7 @@ export function QuickSupport() {
     setErr(null);
     try {
       const r = await api.post<StartResult>("/quick/connect", { code: digits });
-      nav(`/session/${r.session_id}`);
+      nav(`/remote/${r.session_id}`);
     } catch (e) {
       setErr(e);
     } finally {

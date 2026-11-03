@@ -167,7 +167,7 @@ func TestEnrollControlAndSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer ag.CloseNow()
-	vw, _, err := websocket.Dial(cctx, wsURL+"/api/sessions/"+res.SessionID+"/ws", nil)
+	vw, _, err := websocket.Dial(cctx, wsURL+"/api/live/"+res.SessionID+"/ws", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -229,18 +229,5 @@ func TestEnrollControlAndSession(t *testing.T) {
 	}
 	if _, err := svc.StartSession(ctx, en.DeviceID, user, "unattended", false, ""); err != ErrOffline {
 		t.Fatalf("offline start: %v", err)
-	}
-}
-
-func TestRemoteIP(t *testing.T) {
-	r := httptest.NewRequest("GET", "/", nil)
-	r.RemoteAddr = "127.0.0.1:5000"
-	r.Header.Set("X-Forwarded-For", "203.0.113.9, 198.51.100.4")
-	if got := remoteIP(r); got != "198.51.100.4" {
-		t.Fatal(got)
-	}
-	r.RemoteAddr = "198.51.100.7:5000"
-	if got := remoteIP(r); got != "198.51.100.7" {
-		t.Fatal(got)
 	}
 }

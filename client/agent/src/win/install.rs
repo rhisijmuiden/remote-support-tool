@@ -38,18 +38,18 @@ fn hidden(cmd: &mut Command) -> &mut Command {
 }
 
 fn stop_and_wait(svc: &windows_service::service::Service) {
-    if let Ok(st) = svc.query_status() {
-        if st.current_state != ServiceState::Stopped {
-            let _ = svc.stop();
-            for _ in 0..40 {
-                std::thread::sleep(Duration::from_millis(250));
-                if svc
-                    .query_status()
-                    .map(|s| s.current_state == ServiceState::Stopped)
-                    .unwrap_or(true)
-                {
-                    break;
-                }
+    if let Ok(st) = svc.query_status()
+        && st.current_state != ServiceState::Stopped
+    {
+        let _ = svc.stop();
+        for _ in 0..40 {
+            std::thread::sleep(Duration::from_millis(250));
+            if svc
+                .query_status()
+                .map(|s| s.current_state == ServiceState::Stopped)
+                .unwrap_or(true)
+            {
+                break;
             }
         }
     }

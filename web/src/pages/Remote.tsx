@@ -4,7 +4,15 @@ import { useTranslation } from "react-i18next";
 import { api } from "../api";
 import { Icon } from "../components/Icon";
 import { errorText } from "../components/ui";
-import { InputEvent, RemoteViewer, Screen, Transport, ViewerState, normalise } from "../remote/viewer";
+import { useSessionRecorder } from "../recording/useSessionRecorder";
+import {
+  InputEvent,
+  RemoteViewer,
+  Screen,
+  Transport,
+  ViewerState,
+  normalise,
+} from "../remote/viewer";
 
 type SessionInfo = {
   session_id: string;
@@ -45,11 +53,12 @@ export function Remote() {
 
   useEffect(() => {
     let v: RemoteViewer | null = null;
-    api.get<SessionInfo>(`/sessions/${encodeURIComponent(sid)}`).then(
+    api.get<SessionInfo>(`/live/${encodeURIComponent(sid)}`).then(
       (si) => {
         setInfo(si);
         document.title = `${si.hostname} · ${formatCode(si.device_code)}`;
-        const forceRelay = new URLSearchParams(location.search).get("relay") === "1";
+        const forceRelay =
+          new URLSearchParams(location.search).get("relay") === "1";
         v = new RemoteViewer(
           si.session_id,
           si.ice_servers,
@@ -72,7 +81,10 @@ export function Remote() {
             frame: (f) => {
               const c = canvas.current;
               if (c) {
-                if (c.width !== f.displayWidth || c.height !== f.displayHeight) {
+                if (
+                  c.width !== f.displayWidth ||
+                  c.height !== f.displayHeight
+                ) {
                   c.width = f.displayWidth;
                   c.height = f.displayHeight;
                 }
@@ -101,7 +113,11 @@ export function Remote() {
     if (relayMode) return canvas.current?.captureStream(15) ?? null;
     return (video.current?.srcObject as MediaStream | null) ?? null;
   }, [relayMode]);
-  void getStream; // used by the session recorder
+  const rec = useSessionRecorder(
+    info?.log_id ?? null,
+    !!info?.recording,
+    getStream,
+  );
 
   const send = (ev: InputEvent) => {
     if (!viewOnlyRef.current) viewer.current?.input(ev);
@@ -110,7 +126,13 @@ export function Remote() {
   const pos = (e: { clientX: number; clientY: number }) => {
     const el = relayMode ? canvas.current : video.current;
     if (!el || !screen) return null;
-    return normalise(e.clientX, e.clientY, el.getBoundingClientRect(), screen.width, screen.height);
+    return normalise(
+      e.clientX,
+      e.clientY,
+      el.getBoundingClientRect(),
+      screen.width,
+      screen.height,
+    );
   };
 
   // Coalesce pointer moves to one per animation frame.
@@ -168,46 +190,82 @@ export function Remote() {
     stage.current?.focus();
   };
 
-  const disconnect = () => {
+  const disconnect = async () => {
+    // Upload the last part of the recording before the connection goes away.
+    await rec.stop().catch(() => {});
     viewer.current?.stop("viewer_closed");
     nav("/devices");
   };
 
-  const transportLabel = transport ? t("remote.transport_" + transport) : "";
   const ended = state === "ended";
+  useEffect(() => {
+    if (ended) void rec.stop().catch(() => {});
+  }, [ended, rec.stop]);
+
+  const transportLabel = transport ? t("remote.transport_" + transport) : "";
 
   return (
     <div className="remote">
       <header className="remote-bar">
-        <Link to="/devices" className="btn-icon" aria-label={t("remote.back")} title={t("remote.back")}>
+        <Link
+          to="/devices"
+          className="btn-icon"
+          aria-label={t("remote.back")}
+          title={t("remote.back")}
+        >
           <Icon name="back" />
         </Link>
         <div className="remote-title">
           <strong>{info?.hostname ?? "…"}</strong>
-          <span className="mono muted">{info ? formatCode(info.device_code) : ""}</span>
+          <span className="mono muted">
+            {info ? formatCode(info.device_code) : ""}
+          </span>
         </div>
         {transport && (
-          <span className={"pill " + (transport === "p2p" ? "ok" : "neutral")} title={t("remote.encrypted")}>
+          <span
+            className={"pill " + (transport === "p2p" ? "ok" : "neutral")}
+            title={t("remote.encrypted")}
+          >
             <Icon name="lock" /> {transportLabel}
           </span>
         )}
-        {info?.recording && <span className="pill rec">● {t("remote.recording")}</span>}
+        {info?.recording &&
+          (rec.state === "failed" || rec.state === "unsupported" ? (
+            <span className="pill warn" title={rec.error ?? undefined}>
+              {t(
+                rec.state === "failed"
+                  ? "remote.recording_failed"
+                  : "remote.recording_unsupported",
+              )}
+            </span>
+          ) : (
+            <span className="pill rec">{t("remote.recording")}</span>
+          ))}
         <span className="spacer" />
         {screen && screen.monitors.length > 1 && (
           <select
             className="input input-sm"
             aria-label={t("remote.monitor")}
             value={screen.monitor}
-            onChange={(e) => send({ t: "monitor", index: Number(e.target.value) })}
+            onChange={(e) =>
+              send({ t: "monitor", index: Number(e.target.value) })
+            }
           >
             {screen.monitors.map((m) => (
               <option key={m.index} value={m.index}>
-                {m.primary ? t("remote.monitor_primary", { n: m.index + 1 }) : t("remote.monitor_n", { n: m.index + 1 })} · {m.width}×{m.height}
+                {m.primary
+                  ? t("remote.monitor_primary", { n: m.index + 1 })
+                  : t("remote.monitor_n", { n: m.index + 1 })}{" "}
+                · {m.width}×{m.height}
               </option>
             ))}
           </select>
         )}
-        <button className="btn btn-secondary btn-sm" disabled={state !== "connected" || viewOnly} onClick={() => send({ t: "cad" })}>
+        <button
+          className="btn btn-secondary btn-sm"
+          disabled={state !== "connected" || viewOnly}
+          onClick={() => send({ t: "cad" })}
+        >
           Ctrl+Alt+Del
         </button>
         <button
@@ -219,7 +277,12 @@ export function Remote() {
         >
           <Icon name="eye" />
         </button>
-        <button className="btn-icon" onClick={fullscreen} title={t("remote.fullscreen")} aria-label={t("remote.fullscreen")}>
+        <button
+          className="btn-icon"
+          onClick={fullscreen}
+          title={t("remote.fullscreen")}
+          aria-label={t("remote.fullscreen")}
+        >
           <Icon name="fullscreen" />
         </button>
         <button className="btn btn-danger btn-sm" onClick={disconnect}>
@@ -242,7 +305,9 @@ export function Remote() {
           send({ t: "move", ...p });
           send({ t: "button", button: buttonOf(e.button), down: true });
         }}
-        onPointerUp={(e) => send({ t: "button", button: buttonOf(e.button), down: false })}
+        onPointerUp={(e) =>
+          send({ t: "button", button: buttonOf(e.button), down: false })
+        }
         onContextMenu={(e) => e.preventDefault()}
       >
         <video ref={video} muted playsInline autoPlay hidden={relayMode} />
@@ -259,7 +324,11 @@ export function Remote() {
             ) : ended ? (
               <>
                 <strong>{t("remote.ended")}</strong>
-                <span className="muted">{t("remote.reason." + reason.split(":")[0], { defaultValue: reason })}</span>
+                <span className="muted">
+                  {t("remote.reason." + reason.split(":")[0], {
+                    defaultValue: reason,
+                  })}
+                </span>
                 <div className="row">
                   <Link className="btn btn-primary" to="/devices">
                     {t("remote.back")}

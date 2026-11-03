@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { api } from "../api";
 import { Icon } from "../components/Icon";
@@ -46,7 +46,7 @@ export function Devices() {
     setActionErr(null);
     try {
       const r = await api.post<{ session_id: string }>(`/devices/${d.id}/sessions`, {});
-      nav(`/session/${r.session_id}`);
+      nav(`/remote/${r.session_id}`);
     } catch (e) {
       setActionErr(e);
       reload();
@@ -133,6 +133,9 @@ export function Devices() {
                           <Icon name="trash" />
                         </button>
                       )}
+                      <Link className="btn-icon" to={`/sessions?device=${d.id}`} title={t("devices.sessions")} aria-label={`${t("devices.sessions")}: ${d.hostname}`}>
+                        <Icon name="audit" />
+                      </Link>
                     </td>
                   </tr>
                 ))}

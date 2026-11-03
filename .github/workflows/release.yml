@@ -13,7 +13,44 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Windows clients (agent and other workspace binaries), signed when a certificate is configured.
+  windows-clients:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: client
+      - name: Build
+        working-directory: client
+        run: cargo build --release --locked
+      - name: Collect
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist/agent | Out-Null
+          Get-ChildItem client/target/release/rhis-*.exe | ForEach-Object {
+            Copy-Item $_.FullName "dist/agent/$($_.BaseName)_windows_amd64.exe"
+          }
+          $v = (Select-String -Path client/Cargo.toml -Pattern '^version = "(.+)"' | Select-Object -First 1).Matches[0].Groups[1].Value
+          Set-Content -NoNewline dist/agent/client.version $v
+          Get-ChildItem dist/agent
+      - name: Sign
+        shell: pwsh
+        env:
+          WINDOWS_SIGNING_PFX_BASE64: ${{ secrets.WINDOWS_SIGNING_PFX_BASE64 }}
+          WINDOWS_SIGNING_PFX_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PFX_PASSWORD }}
+          WINDOWS_SIGN_COMMAND: ${{ secrets.WINDOWS_SIGN_COMMAND }}
+          WINDOWS_SIGNING_TIMESTAMP_URL: ${{ vars.WINDOWS_SIGNING_TIMESTAMP_URL }}
+        run: ./client/scripts/sign.ps1 dist/agent/*.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-clients
+          path: dist/agent/
+          retention-days: 7
+
   release:
+    needs: windows-clients
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -48,6 +85,11 @@ jobs:
             echo "Release ${{ steps.v.outputs.tag }} exists; bump VERSION to publish a new production release."
             echo "skip=true" >> "$GITHUB_OUTPUT"
           fi
+      - uses: actions/download-artifact@v4
+        if: steps.exists.outputs.skip != 'true'
+        with:
+          name: windows-clients
+          path: dist/agent
       - name: Build
         if: steps.exists.outputs.skip != 'true'
         run: make dist VERSION=${{ steps.v.outputs.tag }} CHANNEL=${{ steps.v.outputs.channel }}
@@ -58,4 +100,4 @@ jobs:
         run: |
           flags="--target ${GITHUB_SHA} --title ${{ steps.v.outputs.tag }} --generate-notes"
           [ "${{ steps.v.outputs.pre }}" = "true" ] && flags="$flags --prerelease"
-          gh release create "${{ steps.v.outputs.tag }}" dist/rhis-remote_linux_amd64.tar.gz dist/checksums.txt $flags
+          gh release create "${{ steps.v.outputs.tag }}" dist/rhis-remote_linux_amd64.tar.gz dist/checksums.txt dist/agent/*.exe $flags

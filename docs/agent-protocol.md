@@ -24,7 +24,7 @@ Agents authenticate with `Authorization: Bearer <device_token>`.
 | GET (WS) | `/api/agent/v1/control` | agent | Long-lived control channel: presence and session requests |
 | GET (WS) | `/api/agent/v1/sessions/{session_id}` | agent session helper | Signaling and relay fallback for one session |
 | POST | `/api/devices/{id}/sessions` | portal user | Start a session with a device |
-| GET (WS) | `/api/sessions/{session_id}/ws` | portal user | Signaling and relay fallback, browser side |
+| GET (WS) | `/api/live/{session_id}/ws` | portal user | Signaling and relay fallback, browser side |
 
 ### Enrollment
 

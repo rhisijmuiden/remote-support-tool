@@ -47,28 +47,38 @@ jobs:
         run: |
           test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
           go vet ./...
-          go test ./...
+          go test -p 1 ./... # packages share one test database; the backup test dumps all of it
 
-  # Until the agent's Windows job lands in this file: builds and tests the client workspace.
-  windows-clients:
+  client-linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: client
+      - name: Client (Linux, test screen)
+        working-directory: client
+        run: |
+          cargo fmt --all --check
+          cargo clippy --all-targets -- -D warnings
+          cargo test
+
+  client-windows:
     runs-on: windows-2025
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/cache@v4
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          path: |
-            ~/.cargo/registry
-            client/target
-          key: win-ci-${{ hashFiles('client/Cargo.lock') }}
-      - name: Test and build
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: client
+      - name: Client (Windows)
         working-directory: client
-        shell: bash
         run: |
-          rustup update stable --no-self-update
-          cargo fmt --all --check
-          cargo test --workspace --locked
-          cargo build --workspace --release --locked
-      - uses: actions/upload-artifact@v4
-        with:
-          name: rhis-quicksupport-windows
-          path: client/target/release/rhis-quick.exe
+          cargo clippy --all-targets -- -D warnings
+          cargo test
+          cargo build --release

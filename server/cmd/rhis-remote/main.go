@@ -28,6 +28,7 @@ import (
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/db"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/mail"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/secret"
+	"github.com/rhisijmuiden/remote-support-tool/server/internal/sessions"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/settings"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/update"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/version"
@@ -87,14 +88,19 @@ func serve(cfgPath string) error {
 		return err
 	}
 	store := &settings.Store{DB: pool}
+	recStore, err := sessions.NewStore(cfg.DataDir, cfg.SecretKey)
+	if err != nil {
+		return err
+	}
 	a := &api.API{
-		Cfg:    &cfg,
-		DB:     pool,
-		Auth:   &auth.Service{DB: pool, SecureCookie: strings.HasPrefix(cfg.PublicURL, "https://")},
-		Audit:  &audit.Log{DB: pool},
-		Mail:   &mail.Service{Store: store, Box: box},
-		Backup: &backup.Service{DB: pool, Store: store, Box: box, DatabaseURL: cfg.DatabaseURL, DataDir: cfg.DataDir},
-		Update: &update.Service{Store: store, APIURL: cfg.Update.APIURL, Repo: cfg.Update.Repo, Asset: cfg.Update.Asset, Token: cfg.Update.Token},
+		Cfg:      &cfg,
+		DB:       pool,
+		Auth:     &auth.Service{DB: pool, SecureCookie: strings.HasPrefix(cfg.PublicURL, "https://")},
+		Audit:    &audit.Log{DB: pool},
+		Mail:     &mail.Service{Store: store, Box: box},
+		Backup:   &backup.Service{DB: pool, Store: store, Box: box, DatabaseURL: cfg.DatabaseURL, DataDir: cfg.DataDir},
+		Sessions: &sessions.Service{DB: pool, Store: store, Rec: recStore},
+		Update:   &update.Service{Store: store, APIURL: cfg.Update.APIURL, Repo: cfg.Update.Repo, Asset: cfg.Update.Asset, Token: cfg.Update.Token, AgentDir: cfg.Gateway.AgentDir},
 		Restart: func() {
 			slog.Info("restarting after update")
 			stop()
@@ -106,7 +112,8 @@ func serve(cfgPath string) error {
 			ice = append(ice, agents.ICEServer{URLs: s.URLs, Username: s.Username, Credential: s.Credential})
 		}
 		a.Agents = &agents.Service{DB: pool, Audit: a.Audit, ICE: ice, AgentDir: cfg.Gateway.AgentDir,
-			Quick: agents.QuickOptions{PublicURL: cfg.PublicURL, ProductName: cfg.Branding.ProductName, CompanyName: cfg.Branding.CompanyName}}
+			Sessions: agents.AuditSessionLog{Log: sessionAudit{a.Sessions}},
+			Quick:    agents.QuickOptions{PublicURL: cfg.PublicURL, ProductName: cfg.Branding.ProductName, CompanyName: cfg.Branding.CompanyName}}
 		if err := a.Agents.Start(ctx); err != nil {
 			return err
 		}
@@ -121,6 +128,20 @@ func serve(cfgPath string) error {
 			slog.Error("backup schedule", "err", err)
 		}
 		defer a.Scheduler.Stop()
+		go func() {
+			t := time.NewTicker(time.Hour)
+			defer t.Stop()
+			for {
+				if err := a.Sessions.Cleanup(ctx); err != nil && ctx.Err() == nil {
+					slog.Error("session cleanup", "err", err)
+				}
+				select {
+				case <-ctx.Done():
+					return
+				case <-t.C:
+				}
+			}
+		}()
 	}
 
 	mux := http.NewServeMux()
@@ -133,6 +154,7 @@ func serve(cfgPath string) error {
 	})
 	// One router for everything agents call; each role mounts its routes on it.
 	agentAPI := chi.NewRouter()
+	agentAPI.Use(api.TrustedProxyIP(cfg.IsTrustedProxy))
 	if a.Agents != nil {
 		a.Agents.MountAgentRoutes(agentAPI)
 	}
@@ -186,4 +208,16 @@ func securityHeaders(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// sessionAudit lets the gateway write its sessions to the session audit log.
+type sessionAudit struct{ *sessions.Service }
+
+func (s sessionAudit) StartSession(ctx context.Context, p agents.StartParams) (int64, bool, error) {
+	sess, err := s.Start(ctx, sessions.StartParams{DeviceID: p.DeviceID, UserID: p.UserID, Kind: p.Kind,
+		Transport: p.Transport, ViewerIP: p.ViewerIP, Record: p.Record})
+	if err != nil {
+		return 0, false, err
+	}
+	return sess.ID, sess.MustRecord(), nil
 }

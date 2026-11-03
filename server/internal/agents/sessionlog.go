@@ -2,6 +2,7 @@ package agents
 
 import (
 	"context"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -42,4 +43,47 @@ func (l *DBSessionLog) SetTransport(ctx context.Context, id int64, t string) err
 func (l *DBSessionLog) End(ctx context.Context, id int64, reason string) error {
 	_, err := l.DB.Exec(ctx, `UPDATE remote_sessions SET ended_at=now(), end_reason=$2 WHERE id=$1 AND ended_at IS NULL`, id, reason)
 	return err
+}
+
+// AuditLog is the part of the session audit service (package sessions) the gateway uses.
+type AuditLog interface {
+	StartSession(ctx context.Context, p StartParams) (id int64, mustRecord bool, err error)
+	SetTransport(ctx context.Context, id int64, transport string) error
+	End(ctx context.Context, id int64, reason string) error
+	AddEvent(ctx context.Context, id int64, kind string, details any) error
+}
+
+// AuditSessionLog stores sessions through the audit service. The end reason is stored in
+// the short form the audit log translates (viewer_closed, agent_closed, timeout,
+// server_shutdown); the detailed gateway reason goes on the session timeline.
+type AuditSessionLog struct{ Log AuditLog }
+
+func (l AuditSessionLog) Start(ctx context.Context, p StartParams) (int64, bool, error) {
+	return l.Log.StartSession(ctx, p)
+}
+
+func (l AuditSessionLog) SetTransport(ctx context.Context, id int64, t string) error {
+	return l.Log.SetTransport(ctx, id, t)
+}
+
+func (l AuditSessionLog) End(ctx context.Context, id int64, reason string) error {
+	if c := CanonicalReason(reason); c != reason {
+		_ = l.Log.AddEvent(ctx, id, "session.end_detail", map[string]string{"reason": reason})
+	}
+	return l.Log.End(ctx, id, CanonicalReason(reason))
+}
+
+// CanonicalReason maps a gateway end reason to the audit log's vocabulary.
+func CanonicalReason(r string) string {
+	head, _, _ := strings.Cut(r, ":")
+	switch {
+	case head == "viewer" || head == "viewer_left" || head == "viewer_closed":
+		return "viewer_closed"
+	case head == "agent" || head == "agent_left" || head == "rejected" || head == "device_deleted" || head == "agent_closed" || head == "quick_closed":
+		return "agent_closed"
+	case head == "server_restart" || head == "server_shutdown":
+		return "server_shutdown"
+	default: // timeouts, stalls, write failures, lost agents
+		return "timeout"
+	}
 }

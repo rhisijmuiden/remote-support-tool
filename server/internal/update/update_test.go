@@ -21,7 +21,7 @@ func archive(t *testing.T, content string) []byte {
 	var buf bytes.Buffer
 	gz := gzip.NewWriter(&buf)
 	tw := tar.NewWriter(gz)
-	for _, f := range []struct{ name, body string }{{"./install.sh", "#!/bin/sh"}, {"./rhis-remote", content}} {
+	for _, f := range []struct{ name, body string }{{"./install.sh", "#!/bin/sh"}, {"./rhis-remote", content}, {"./agent/rhis-agent_windows_amd64.exe", "AGENT " + content}} {
 		tw.WriteHeader(&tar.Header{Name: f.name, Mode: 0o755, Size: int64(len(f.body)), Typeflag: tar.TypeReg})
 		tw.Write([]byte(f.body))
 	}
@@ -66,11 +66,16 @@ func TestCheckAndApply(t *testing.T) {
 	exe := filepath.Join(t.TempDir(), "rhis-remote")
 	os.WriteFile(exe, []byte("OLD"), 0o755)
 	s.Executable = exe
+	s.AgentDir = filepath.Join(t.TempDir(), "agent")
+	agentExe := filepath.Join(s.AgentDir, "rhis-agent_windows_amd64.exe")
 	if err := applyRelease(context.Background(), s, prod); err != nil {
 		t.Fatal(err)
 	}
 	if b, _ := os.ReadFile(exe); string(b) != "NEW BINARY" {
 		t.Fatalf("binary = %q", b)
+	}
+	if b, _ := os.ReadFile(agentExe); string(b) != "AGENT NEW BINARY" {
+		t.Fatalf("agent = %q", b)
 	}
 	if b, _ := os.ReadFile(exe + ".previous"); string(b) != "OLD" {
 		t.Fatalf("previous = %q", b)
@@ -84,5 +89,11 @@ func TestCheckAndApply(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(exe); string(b) != "OLD" {
 		t.Fatalf("binary replaced despite bad checksum: %q", b)
+	}
+	if b, _ := os.ReadFile(agentExe); string(b) != "AGENT NEW BINARY" {
+		t.Fatalf("agent replaced despite bad checksum: %q", b)
+	}
+	if left, _ := filepath.Glob(filepath.Join(s.AgentDir, ".update-*")); len(left) != 0 {
+		t.Fatalf("temporary files left: %v", left)
 	}
 }
