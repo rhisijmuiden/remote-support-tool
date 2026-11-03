@@ -79,7 +79,8 @@
     "invalid_token": "De join-token is niet geldig.",
     "invalid_name": "Vul een naam in.",
     "invalid_domain": "Vul een geldige hostnaam in, bijvoorbeeld relay1.example.com.",
-    "cannot_remove_self": "Je kunt de server waarmee je verbonden bent niet verwijderen."
+    "cannot_remove_self": "Je kunt de server waarmee je verbonden bent niet verwijderen.",
+    "invalid_customer": "Deze klant bestaat niet."
   },
   "auth": {
     "tagline": "Hulp op afstand die je zelf host.",

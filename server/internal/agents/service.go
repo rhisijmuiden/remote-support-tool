@@ -209,6 +209,11 @@ func NewDeviceCode(ctx context.Context, db *pgxpool.Pool) (string, error) {
 	return "", errors.New("no free device code")
 }
 
+func isForeignKeyViolation(err error) bool {
+	var pe *pgconn.PgError
+	return errors.As(err, &pe) && pe.Code == "23503"
+}
+
 func isUniqueViolation(err error) bool {
 	var pe *pgconn.PgError
 	return errors.As(err, &pe) && pe.Code == "23505"

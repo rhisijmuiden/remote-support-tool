@@ -215,6 +215,10 @@ func (s *Service) handleCreateToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	t, err := s.CreateToken(r.Context(), auth.FromContext(r.Context()).ID, in.Label, in.CustomerID, in.ValidDays, in.MaxUses)
+	if isForeignKeyViolation(err) {
+		fail(w, http.StatusBadRequest, "invalid_customer", nil)
+		return
+	}
 	if err != nil {
 		fail(w, 500, "internal", err)
 		return

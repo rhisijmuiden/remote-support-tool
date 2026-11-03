@@ -24,7 +24,9 @@ Agents authenticate with `Authorization: Bearer <device_token>`.
 | GET (WS) | `/api/agent/v1/control` | agent | Long-lived control channel: presence and session requests |
 | GET (WS) | `/api/agent/v1/sessions/{session_id}` | agent session helper | Signaling and relay fallback for one session |
 | POST | `/api/devices/{id}/sessions` | portal user | Start a session with a device |
+| GET | `/api/live/{session_id}` | portal user | Session info for the viewer: device, `recording`, `log_id` (the session audit id), fresh `ice_servers` |
 | GET (WS) | `/api/live/{session_id}/ws` | portal user | Signaling and relay fallback, browser side |
+| GET | `/api/agent/v1/download/windows` | anyone | The current `rhis-agent.exe` |
 
 ### Enrollment
 
@@ -80,7 +82,7 @@ and binary frames too (relay fallback). Text frames are JSON with a `type`:
 | `relay` | viewer | Switch to the WebSocket relay (WebRTC failed or was too slow) |
 | `keyframe` | viewer | Ask for a new key frame (relay mode) |
 | `input` | viewer | Input event, relay mode only (see below) |
-| `screen` | agent | `width`, `height`, `monitors` (list of `{index, name, width, height, primary}`), `monitor` |
+| `screen` | agent | `width`, `height`, `monitors` (list of `{index, name, x, y, width, height, primary}`, positions in virtual-desktop pixels), `monitor` |
 | `end` | both or server | `reason` |
 
 The viewer makes the WebRTC offer with one receive-only video transceiver and a data channel named `input`.
@@ -92,7 +94,7 @@ The browser decodes it with WebCodecs.
 
 ### Input events
 
-Sent on the `input` data channel as JSON, or as `{"type":"input", ...}` text frames in relay mode.
+Sent on the `input` data channel as JSON. In relay mode the same object is wrapped in a text frame: `{"type":"input","event":{"t":"move","x":0.5,"y":0.5}}`.
 Coordinates are normalised to 0..1 of the shown monitor.
 
 | t | fields |
@@ -110,3 +112,9 @@ Coordinates are normalised to 0..1 of the shown monitor.
 - For each session the service starts `rhis-agent.exe session` in the active console session with the SYSTEM token,
   so it can capture the sign-in screen and UAC prompts. That process opens the session socket and runs WebRTC.
 - QuickSupport uses the same `rhis-core` crate in-process, without a service.
+
+## Session log
+
+Every session is written to the session audit (`remote_sessions`, see [session-recording.md](session-recording.md)). The recording policy decides whether the viewer records; the agent then shows "this session is being recorded". The end reason is stored as `viewer_closed`, `agent_closed`, `timeout` or `server_shutdown`; the gateway's detailed reason (for example `rejected:busy` or `viewer_stalled`) is added to the session timeline as `session.end_detail`.
+
+TURN credentials are short-lived and tagged `u<user id>` for the browser and `d<device id>` for the agent, so relay logs can be traced back without personal data.

@@ -79,7 +79,8 @@
     "invalid_token": "The join token is not valid.",
     "invalid_name": "Fill in a name.",
     "invalid_domain": "Fill in a valid host name, for example relay1.example.com.",
-    "cannot_remove_self": "You cannot remove the server you are connected to."
+    "cannot_remove_self": "You cannot remove the server you are connected to.",
+    "invalid_customer": "This customer does not exist."
   },
   "auth": {
     "tagline": "Remote support you host yourself.",
