@@ -11,6 +11,8 @@ ExecStart=/opt/rhis-remote/bin/rhis-remote serve --config /etc/rhis-remote/confi
 # The server restarts itself after an update from the portal; systemd starts it again.
 Restart=always
 RestartSec=2
+# Exit status 3: this relay was removed or its join token was rejected; restarting will not help.
+RestartPreventExitStatus=3
 WorkingDirectory=/var/lib/rhis-remote
 # Hardening
 NoNewPrivileges=true
