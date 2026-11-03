@@ -94,7 +94,7 @@ func serve(cfgPath string) error {
 		Audit:  &audit.Log{DB: pool},
 		Mail:   &mail.Service{Store: store, Box: box},
 		Backup: &backup.Service{DB: pool, Store: store, Box: box, DatabaseURL: cfg.DatabaseURL, DataDir: cfg.DataDir},
-		Update: &update.Service{Store: store, APIURL: cfg.Update.APIURL, Repo: cfg.Update.Repo, Asset: cfg.Update.Asset, Token: cfg.Update.Token},
+		Update: &update.Service{Store: store, APIURL: cfg.Update.APIURL, Repo: cfg.Update.Repo, Asset: cfg.Update.Asset, Token: cfg.Update.Token, AgentDir: cfg.Gateway.AgentDir},
 		Restart: func() {
 			slog.Info("restarting after update")
 			stop()

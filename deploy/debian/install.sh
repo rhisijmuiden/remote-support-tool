@@ -37,7 +37,7 @@ say "Creating user and folders"
 id rhis-remote >/dev/null 2>&1 || useradd --system --home /var/lib/rhis-remote --shell /usr/sbin/nologin rhis-remote
 install -d -o rhis-remote -g rhis-remote -m 0750 /var/lib/rhis-remote /var/lib/rhis-remote/data
 # The service owns its binary folder so it can install updates from the portal.
-install -d -o rhis-remote -g rhis-remote -m 0755 /opt/rhis-remote /opt/rhis-remote/bin
+install -d -o rhis-remote -g rhis-remote -m 0755 /opt/rhis-remote /opt/rhis-remote/bin /opt/rhis-remote/agent
 install -d -o root -g rhis-remote -m 0750 /etc/rhis-remote
 
 say "Installing the server binary"
@@ -56,6 +56,10 @@ else
   (cd "$tmp" && grep " $ASSET\$" checksums.txt | sha256sum -c -)
   tar -xzf "$tmp/$ASSET" -C "$tmp"
   install -o rhis-remote -g rhis-remote -m 0755 "$tmp/rhis-remote" /opt/rhis-remote/bin/rhis-remote
+  # Windows clients (agent, quick support) that the portal offers for download.
+  if [[ -d "$tmp/agent" ]]; then
+    for f in "$tmp"/agent/*; do install -o rhis-remote -g rhis-remote -m 0644 "$f" /opt/rhis-remote/agent/; done
+  fi
 fi
 /opt/rhis-remote/bin/rhis-remote version
 
