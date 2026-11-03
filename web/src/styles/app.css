@@ -150,3 +150,9 @@ td .sub { display: block; font-size: 0.78rem; color: var(--muted); }
 .auth-form form { width: min(380px, 100%); display: grid; gap: 16px; }
 @media (max-width: 860px) { .auth { grid-template-columns: 1fr; } .auth-art { padding: 28px 20px; } }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+/* servers */
+td .sub.warn-text { color: var(--warn); font-weight: 600; }
+.steps { margin: 0; padding-left: 1.2rem; display: grid; gap: 8px; font-size: 0.9rem; }
+.steps strong { font-weight: 700; }
+pre.cmd { white-space: pre-wrap; word-break: break-all; max-height: none; user-select: all; }

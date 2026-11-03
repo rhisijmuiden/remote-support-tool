@@ -161,6 +161,13 @@ func (r *Remote) connectOnce(ctx context.Context) (*HeartbeatResponse, error) {
 	return r.beat(ctx)
 }
 
+// Refresh sends a heartbeat now, for example right after the relay started so the
+// control server learns its URLs without waiting for the next interval.
+func (r *Remote) Refresh(ctx context.Context) error {
+	_, err := r.beat(ctx)
+	return err
+}
+
 func (r *Remote) beat(ctx context.Context) (*HeartbeatResponse, error) {
 	var urls []string
 	if r.RelayURLs != nil {

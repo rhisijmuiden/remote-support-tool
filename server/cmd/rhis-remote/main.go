@@ -279,6 +279,9 @@ func serveRemote(ctx context.Context, stop context.CancelFunc, cfg *config.Confi
 			return err
 		}
 		defer rl.Close()
+		if err := rem.Refresh(ctx); err != nil {
+			slog.Warn("heartbeat failed", "err", err)
+		}
 	}
 
 	// Follow the control server's version so the whole installation is updated from
