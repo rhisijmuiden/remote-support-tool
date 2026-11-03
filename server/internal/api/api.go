@@ -16,9 +16,12 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/rhisijmuiden/remote-support-tool/server/internal/agentupdate"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/audit"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/auth"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/backup"
+	"github.com/rhisijmuiden/remote-support-tool/server/internal/builder"
+	"github.com/rhisijmuiden/remote-support-tool/server/internal/codesign"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/config"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/mail"
 	"github.com/rhisijmuiden/remote-support-tool/server/internal/update"
@@ -34,6 +37,9 @@ type API struct {
 	Backup    *backup.Service
 	Scheduler *backup.Scheduler
 	Update    *update.Service
+	Builder   *builder.Service
+	Agents    *agentupdate.Service
+	CodeSign  *codesign.Service
 	// Restart is called after an update has been installed.
 	Restart func()
 
@@ -64,6 +70,7 @@ func (a *API) Routes() http.Handler {
 		r.Get("/devices", a.devices)
 		r.Get("/customers", a.customers)
 		r.Get("/system/info", a.systemInfo)
+		a.builderRoutes(r)
 		r.Group(func(r chi.Router) {
 			r.Use(requireAdmin)
 			r.Get("/users", a.listUsers)

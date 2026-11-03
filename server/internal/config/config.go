@@ -11,7 +11,8 @@ import (
 )
 
 // Known server roles. A single machine normally runs "all".
-var KnownRoles = []string{"web", "api", "scheduler"}
+// "update" serves agent updates and installer download links.
+var KnownRoles = []string{"web", "api", "scheduler", "update"}
 
 type Config struct {
 	Listen      string   `yaml:"listen"`       // e.g. ":8080" (behind a reverse proxy) or ":443"
@@ -30,6 +31,18 @@ type Config struct {
 		Token  string `yaml:"token"` // optional GitHub token (private repos / rate limits)
 		APIURL string `yaml:"api_url"`
 	} `yaml:"update"`
+	// Agents are imported from GitHub releases of this repository (defaults to update.repo).
+	Agents struct {
+		Repo         string `yaml:"repo"`
+		SyncInterval string `yaml:"sync_interval"` // e.g. "1h"; "0" turns automatic import off
+		Keep         int    `yaml:"keep"`          // releases kept per product/arch/channel
+	} `yaml:"agents"`
+	CodeSigning struct {
+		// Command signs a Windows executable with a key on a token, HSM or cloud service,
+		// for example: jsign --storetype YUBIKEY --storepass "..." --tsaurl {timestamp} {in}
+		// {in}, {out}, {name}, {url} and {timestamp} are replaced. Only settable here, not in the portal.
+		Command string `yaml:"command"`
+	} `yaml:"code_signing"`
 	Branding struct {
 		ProductName string `yaml:"product_name"`
 		CompanyName string `yaml:"company_name"`
@@ -45,6 +58,8 @@ func Default() Config {
 	c.Update.Repo = "rhisijmuiden/remote-support-tool"
 	c.Update.Asset = "rhis-remote_linux_amd64.tar.gz"
 	c.Update.APIURL = "https://api.github.com"
+	c.Agents.SyncInterval = "1h"
+	c.Agents.Keep = 5
 	c.Branding.ProductName = "RHIS Remote"
 	c.Branding.CompanyName = "RHIS"
 	return c

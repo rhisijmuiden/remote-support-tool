@@ -31,7 +31,7 @@ say() { printf '\n\033[1;38;2;255;107;87m==>\033[0m %s\n' "$*"; }
 say "Installing packages"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq postgresql postgresql-client ca-certificates curl jq openssl >/dev/null
+apt-get install -y -qq postgresql postgresql-client ca-certificates curl jq openssl osslsigncode >/dev/null
 
 say "Creating user and folders"
 id rhis-remote >/dev/null 2>&1 || useradd --system --home /var/lib/rhis-remote --shell /usr/sbin/nologin rhis-remote

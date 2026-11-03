@@ -12,3 +12,11 @@ update:
 branding:
   product_name: "RHIS Remote"
   company_name: "RHIS"
+agents:                           # agent and QuickSupport executables for the client builder
+  # repo: ""                      # GitHub repository with agent releases (default: update.repo)
+  sync_interval: "1h"             # import new agent releases automatically; "0" = only by hand
+  keep: 5                         # releases kept per product, architecture and channel
+code_signing:
+  # Signs installers with a key on a hardware token, HSM or cloud service. A PFX file can
+  # be uploaded in the portal instead. {in} {out} {name} {url} {timestamp} are replaced.
+  # command: 'jsign --storetype YUBIKEY --storepass "PIN" --tsaurl {timestamp} --name {name} {in}'
