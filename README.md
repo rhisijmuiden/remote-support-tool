@@ -14,3 +14,9 @@ Self-hosted remote support for Windows: remote control with unattended access, a
 ## Branding
 
 The `branding/` folder holds the RHIS house style (logos, colors, fonts) used by the web portal and clients. Product name, logo and colors are configurable so other brands can ship their own build.
+
+## License
+
+Copyright (C) 2026 RHIS.
+
+This project is licensed under the [GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0-only). If you run a modified version as a network service, you must make your source code available to its users.
