@@ -13,6 +13,7 @@ Self-hosted remote support for Windows: remote control with unattended access, a
 - **Mail server:** your own SMTP server with STARTTLS or implicit TLS (minimum TLS 1.2 or 1.3), authentication by SCRAM-SHA-256, PLAIN, LOGIN, CRAM-MD5 or XOAUTH2, and a test email from the portal.
 - **Backup and restore:** full and incremental backups of the database and data folder to FTP, FTPS (explicit or implicit) or SCP over SSH, on a schedule or by hand, optionally encrypted with [age](https://age-encryption.org). Retention keeps the newest N full backups. Restore works from the remote location, also on a fresh server.
 - **Info and updates:** the Info button shows the version and checks GitHub releases. Switch between the production and test channel and install an update from the portal.
+- **Session audit and recording:** every remote session is logged (technician, device, customer, time, duration, connection type, IP) with a timeline of what happened, filterable and exportable as CSV. Optional video recording (off, technician chooses, or always), stored encrypted on the server, with playback, download, retention and private share links for customers. See [docs/session-recording.md](docs/session-recording.md).
 - **One binary, several roles:** `roles: ["all"]` on one machine; later roles (gateway, relay) can run on separate servers.
 
 ## Screenshots
@@ -24,7 +25,12 @@ All screenshots are taken from a real `v0.1.0-test.1` server. The backups shown 
 | ![Sign in](docs/screenshots/login.png) **Sign in** | ![Dark theme in Dutch](docs/screenshots/dashboard-dark-nl.png) **Dark theme, Dutch** |
 | ![Users and roles](docs/screenshots/users.png) **Users and roles** | ![Mail server](docs/screenshots/mail.png) **Mail server (SMTP)** |
 | ![Backup and restore](docs/screenshots/backup.png) **Backup history and restore** | ![Info and updates](docs/screenshots/info-updates.png) **Info, update channel and updates** |
-| ![Activity log](docs/screenshots/audit.png) **Activity log** | |
+| ![Activity log](docs/screenshots/audit.png) **Activity log** | ![Session recording settings](docs/screenshots/recording-settings.png) **Session recording settings** |
+| ![Sessions](docs/screenshots/sessions.png) **Session log** | ![Session with recording](docs/screenshots/session-detail.png) **Session details, recording and timeline** |
+| ![Share link](docs/screenshots/session-share.png) **Share a recording with a customer** | ![Customer share page](docs/screenshots/shared-recording-nl.png) **What the customer sees (Dutch)** |
+| ![Sessions in Dutch, dark theme](docs/screenshots/sessions-nl-dark.png) **Sessions, dark theme, Dutch** | |
+
+The session screenshots use demo data; the recording in them was made by a real browser with the portal's recorder and played back from the encrypted store.
 
 ## Roadmap
 
@@ -33,7 +39,7 @@ All screenshots are taken from a real `v0.1.0-test.1` server. The backups shown 
 | 1. Server foundation | Done (v0.1) |
 | 2. Windows agent and connectivity (NAT traversal, WebRTC, relay) | Next |
 | 3. Quick support client (no install, session code) | Planned |
-| 4. Session audit and recording | Planned |
+| 4. Session audit and recording | Server and portal in test; recording goes live with the Windows agent |
 | 5. Client builder and signed central updates | Planned |
 | 6. Multi-server and scale-out | Planned |
 | 7. Code signing and open-source release | Planned |
