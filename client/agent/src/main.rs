@@ -22,7 +22,11 @@ use clap::{Parser, Subcommand};
 use crate::config::AgentConfig;
 
 #[derive(Parser)]
-#[command(name = "rhis-agent", version, about = "RHIS Remote agent: unattended remote access for this computer")]
+#[command(
+    name = "rhis-agent",
+    version,
+    about = "RHIS Remote agent: unattended remote access for this computer"
+)]
 struct Cli {
     /// Path of agent.json.
     #[arg(long, global = true)]
@@ -89,12 +93,17 @@ fn real_main(cli: Cli, path: PathBuf) -> Result<()> {
         Cmd::Install(a) => install(&path, a),
         Cmd::Enroll(a) => {
             let cfg = enroll(&path, a)?;
-            println!("Enrolled as device {} (ID {}).", cfg.device_id, format_code(&cfg.device_code));
+            println!(
+                "Enrolled as device {} (ID {}).",
+                cfg.device_id,
+                format_code(&cfg.device_code)
+            );
             Ok(())
         }
         Cmd::Uninstall => uninstall(&path),
         Cmd::Run => {
-            let cfg = AgentConfig::load(&path)?.context("not enrolled yet: run `rhis-agent install --server … --token …`")?;
+            let cfg = AgentConfig::load(&path)?
+                .context("not enrolled yet: run `rhis-agent install --server … --token …`")?;
             agent::runtime().block_on(agent::run_foreground(cfg, path))
         }
         Cmd::Status => {
@@ -102,7 +111,11 @@ fn real_main(cli: Cli, path: PathBuf) -> Result<()> {
                 Some(c) => {
                     println!("Configuration: {}", path.display());
                     println!("Servers:       {}", c.servers.join(", "));
-                    println!("Device:        {} (ID {})", c.device_id, format_code(&c.device_code));
+                    println!(
+                        "Device:        {} (ID {})",
+                        c.device_id,
+                        format_code(&c.device_code)
+                    );
                     println!("Machine ID:    {}", c.machine_id);
                     println!("Version:       {}", rhis_core::VERSION);
                 }
@@ -125,12 +138,18 @@ fn real_main(cli: Cli, path: PathBuf) -> Result<()> {
 }
 
 pub fn format_code(c: &str) -> String {
-    if c.len() == 9 { format!("{} {} {}", &c[..3], &c[3..6], &c[6..]) } else { c.to_string() }
+    if c.len() == 9 {
+        format!("{} {} {}", &c[..3], &c[3..6], &c[6..])
+    } else {
+        c.to_string()
+    }
 }
 
 /// Fills in server and token from the embedded build configuration when they are not given.
 fn resolve_args(mut a: EnrollArgs) -> Result<(EnrollArgs, Option<buildcfg::BuildConfig>)> {
-    let embedded = std::env::current_exe().ok().and_then(|p| buildcfg::read(&p).ok().flatten());
+    let embedded = std::env::current_exe()
+        .ok()
+        .and_then(|p| buildcfg::read(&p).ok().flatten());
     if let Some(b) = &embedded {
         if a.server.is_none() {
             a.server = b.servers.first().cloned();
@@ -140,7 +159,9 @@ fn resolve_args(mut a: EnrollArgs) -> Result<(EnrollArgs, Option<buildcfg::Build
         }
     }
     if a.server.is_none() || a.token.is_none() {
-        bail!("--server and --token are required (or use a build made in the portal's client builder)");
+        bail!(
+            "--server and --token are required (or use a build made in the portal's client builder)"
+        );
     }
     Ok((a, embedded))
 }
@@ -190,13 +211,21 @@ fn install(path: &std::path::Path, a: EnrollArgs) -> Result<()> {
         win::install::require_admin()?;
         let cfg = enroll(path, a)?;
         win::install::install_service()?;
-        println!("Installed. This computer is device {} (ID {}).", cfg.device_id, format_code(&cfg.device_code));
+        println!(
+            "Installed. This computer is device {} (ID {}).",
+            cfg.device_id,
+            format_code(&cfg.device_code)
+        );
         Ok(())
     }
     #[cfg(not(windows))]
     {
         let cfg = enroll(path, a)?;
-        println!("Enrolled as device {} (ID {}). Run `rhis-agent run` to go online.", cfg.device_id, format_code(&cfg.device_code));
+        println!(
+            "Enrolled as device {} (ID {}). Run `rhis-agent run` to go online.",
+            cfg.device_id,
+            format_code(&cfg.device_code)
+        );
         Ok(())
     }
 }

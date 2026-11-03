@@ -55,7 +55,9 @@ func TestQuickSupport(t *testing.T) {
 		t.Fatal(err)
 	}
 	mux := http.NewServeMux()
-	mux.Handle("/api/agent/v1/", http.StripPrefix("/api/agent/v1", svc.AgentRoutes()))
+	agentAPI := chi.NewRouter()
+	svc.MountAgentRoutes(agentAPI)
+	mux.Handle("/api/agent/v1/", http.StripPrefix("/api/agent/v1", agentAPI))
 	portal := chi.NewRouter()
 	portal.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -264,14 +264,14 @@ mod engine {
     use rhis_core::protocol::SessionRequest;
     use rhis_core::session::{self, SessionConfig};
     use std::sync::Mutex;
-    use tokio::sync::{Notify, oneshot};
+    use tokio::sync::{oneshot, watch};
 
     #[derive(Default)]
     struct State {
         /// A request waiting for the customer's answer.
         pending: Option<(String, oneshot::Sender<bool>)>,
         /// The running session and the signal that stops it.
-        active: Option<(String, Arc<Notify>)>,
+        active: Option<(String, watch::Sender<bool>)>,
     }
 
     struct Handler {
@@ -330,8 +330,9 @@ mod engine {
                 }
             }
 
-            let stop = Arc::new(Notify::new());
-            self.state.lock().unwrap().active = Some((req.session_id.clone(), stop.clone()));
+            // Setting `cancel` makes the session tell the viewer and stop the capture.
+            let (stop, cancel) = watch::channel(false);
+            self.state.lock().unwrap().active = Some((req.session_id.clone(), stop));
             (self.send)(Event::Active {
                 technician: req.user_name.clone(),
                 recording: req.recording,
@@ -342,16 +343,14 @@ mod engine {
                 request: req,
                 fps: 30.0,
                 product_name: self.product_name.clone(),
+                cancel: Some(cancel),
             };
             let (send, state) = (self.send.clone(), self.state.clone());
             tokio::spawn(async move {
                 let platform = Arc::from(rhis_core::platform::default_platform());
-                tokio::select! {
-                    r = session::run(cfg, platform) => match r {
-                        Ok(reason) => eprintln!("session ended: {reason}"),
-                        Err(e) => eprintln!("session failed: {e:#}"),
-                    },
-                    _ = stop.notified() => eprintln!("session ended by the customer"),
+                match session::run(cfg, platform).await {
+                    Ok(reason) => eprintln!("session ended: {reason}"),
+                    Err(e) => eprintln!("session failed: {e:#}"),
                 }
                 state.lock().unwrap().active = None;
                 send(Event::Ended { declined: false });
@@ -368,7 +367,7 @@ mod engine {
             } else if let Some((id, stop)) = &st.active
                 && id == session_id
             {
-                stop.notify_one();
+                let _ = stop.send(true);
             }
         }
     }
@@ -425,7 +424,7 @@ mod engine {
         let control = rt.spawn(control::run(ccfg, handler));
         let stop_active = || {
             if let Some((_, stop)) = &state.lock().unwrap().active {
-                stop.notify_one();
+                let _ = stop.send(true);
             }
         };
         let shutdown = loop {

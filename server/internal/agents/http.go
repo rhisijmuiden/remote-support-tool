@@ -20,19 +20,18 @@ import (
 // AgentExe is the file name of the Windows agent in AgentDir and in release assets.
 const AgentExe = "rhis-agent_windows_amd64.exe"
 
-// AgentRoutes serves /api/agent/v1. Agents authenticate with a bearer device token,
-// so these routes sit outside the portal's cookie and CSRF checks.
-func (s *Service) AgentRoutes() http.Handler {
+// MountAgentRoutes adds the agent routes to the router served at /api/agent/v1. Agents
+// authenticate with a bearer device token, so these routes sit outside the portal's cookie
+// and CSRF checks. Other packages (updates, quick support) mount on the same router.
+func (s *Service) MountAgentRoutes(r chi.Router) {
 	s.mu.Lock()
 	s.init()
 	s.mu.Unlock()
-	r := chi.NewRouter()
 	r.Post("/enroll", s.handleEnroll)
 	r.Get("/control", s.handleControl)
 	r.Get("/sessions/{id}", s.handleAgentSession)
 	r.Get("/download/windows", s.handleDownload)
 	s.quickAgentRoutes(r)
-	return r
 }
 
 // PortalRoutes adds the routes for signed-in portal users to r.

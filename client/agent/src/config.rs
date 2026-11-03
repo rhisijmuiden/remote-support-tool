@@ -28,7 +28,9 @@ pub struct AgentConfig {
 impl AgentConfig {
     pub fn load(path: &Path) -> Result<Option<Self>> {
         match std::fs::read(path) {
-            Ok(b) => Ok(Some(serde_json::from_slice(&b).with_context(|| format!("parse {}", path.display()))?)),
+            Ok(b) => Ok(Some(
+                serde_json::from_slice(&b).with_context(|| format!("parse {}", path.display()))?,
+            )),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
             Err(e) => Err(e).with_context(|| format!("read {}", path.display())),
         }
@@ -56,7 +58,11 @@ impl AgentConfig {
     }
 
     pub fn product_name(&self) -> String {
-        self.build.as_ref().map(|b| b.product_name.clone()).filter(|n| !n.is_empty()).unwrap_or_else(|| "RHIS Remote".into())
+        self.build
+            .as_ref()
+            .map(|b| b.product_name.clone())
+            .filter(|n| !n.is_empty())
+            .unwrap_or_else(|| "RHIS Remote".into())
     }
 }
 
@@ -64,7 +70,9 @@ impl AgentConfig {
 pub fn default_path() -> PathBuf {
     #[cfg(windows)]
     {
-        let base = std::env::var_os("ProgramData").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(r"C:\ProgramData"));
+        let base = std::env::var_os("ProgramData")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from(r"C:\ProgramData"));
         base.join("RHIS Remote").join("agent.json")
     }
     #[cfg(not(windows))]

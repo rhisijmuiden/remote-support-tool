@@ -10,13 +10,18 @@ use base64::engine::general_purpose::STANDARD as B64;
 
 #[cfg(windows)]
 pub fn protect(plain: &str) -> Result<String> {
-    Ok(format!("dpapi:{}", B64.encode(crate::win::dpapi::protect(plain.as_bytes())?)))
+    Ok(format!(
+        "dpapi:{}",
+        B64.encode(crate::win::dpapi::protect(plain.as_bytes())?)
+    ))
 }
 
 #[cfg(windows)]
 pub fn unprotect(stored: &str) -> Result<String> {
     match stored.strip_prefix("dpapi:") {
-        Some(b) => Ok(String::from_utf8(crate::win::dpapi::unprotect(&B64.decode(b)?)?)?),
+        Some(b) => Ok(String::from_utf8(crate::win::dpapi::unprotect(
+            &B64.decode(b)?,
+        )?)?),
         None => Ok(stored.to_string()),
     }
 }

@@ -27,10 +27,16 @@ pub struct TestPlatform {
 
 impl Platform for TestPlatform {
     fn capturer(&self) -> Result<Box<dyn Capturer>> {
-        Ok(Box::new(TestCapturer { state: self.state.clone(), start: Instant::now(), monitor: 0 }))
+        Ok(Box::new(TestCapturer {
+            state: self.state.clone(),
+            start: Instant::now(),
+            monitor: 0,
+        }))
     }
     fn input(&self) -> Result<Box<dyn InputSink>> {
-        Ok(Box::new(TestInput { state: self.state.clone() }))
+        Ok(Box::new(TestInput {
+            state: self.state.clone(),
+        }))
     }
 }
 
@@ -68,7 +74,10 @@ impl Capturer for TestCapturer {
         Ok(())
     }
     fn capture(&mut self, f: &mut Frame) -> Result<()> {
-        let (w, h) = (SIZES[self.monitor].0 as usize, SIZES[self.monitor].1 as usize);
+        let (w, h) = (
+            SIZES[self.monitor].0 as usize,
+            SIZES[self.monitor].1 as usize,
+        );
         f.width = w;
         f.height = h;
         f.data.resize(w * h * 4, 0);
@@ -96,7 +105,11 @@ impl Capturer for TestCapturer {
         }
         // The remote pointer.
         let (px, py) = ((st.x * w as f64) as usize, (st.y * h as f64) as usize);
-        let c = if st.buttons != 0 { [120, 220, 120] } else { [255, 255, 255] };
+        let c = if st.buttons != 0 {
+            [120, 220, 120]
+        } else {
+            [255, 255, 255]
+        };
         rect(f, px.saturating_sub(6), py.saturating_sub(6), 12, 12, c);
         Ok(())
     }

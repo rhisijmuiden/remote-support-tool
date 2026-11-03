@@ -2,7 +2,8 @@
 use anyhow::{Result, anyhow};
 use openh264::OpenH264API;
 use openh264::encoder::{
-    BitRate, Complexity, Encoder, EncoderConfig, FrameRate, FrameType, IntraFramePeriod, RateControlMode, UsageType,
+    BitRate, Complexity, Encoder, EncoderConfig, FrameRate, FrameType, IntraFramePeriod,
+    RateControlMode, UsageType,
 };
 use openh264::formats::{BgraSliceU8, YUVBuffer};
 
@@ -40,8 +41,15 @@ impl H264Encoder {
             // A key frame every 4 seconds lets a viewer recover from lost packets.
             .intra_frame_period(IntraFramePeriod::from_num_frames((fps * 4.0) as u32))
             .skip_frames(true);
-        let enc = Encoder::with_api_config(OpenH264API::from_source(), cfg).map_err(|e| anyhow!("openh264: {e}"))?;
-        Ok(Self { enc, yuv: YUVBuffer::new(width, height), width, height, out: Vec::new() })
+        let enc = Encoder::with_api_config(OpenH264API::from_source(), cfg)
+            .map_err(|e| anyhow!("openh264: {e}"))?;
+        Ok(Self {
+            enc,
+            yuv: YUVBuffer::new(width, height),
+            width,
+            height,
+            out: Vec::new(),
+        })
     }
 
     pub fn size(&self) -> (usize, usize) {
@@ -53,11 +61,15 @@ impl H264Encoder {
         if frame.width != self.width || frame.height != self.height {
             return Err(anyhow!("frame size changed"));
         }
-        self.yuv.read_bgra8(BgraSliceU8::new(&frame.data, (frame.width, frame.height)));
+        self.yuv
+            .read_bgra8(BgraSliceU8::new(&frame.data, (frame.width, frame.height)));
         if force_key {
             self.enc.force_intra_frame();
         }
-        let bs = self.enc.encode(&self.yuv).map_err(|e| anyhow!("encode: {e}"))?;
+        let bs = self
+            .enc
+            .encode(&self.yuv)
+            .map_err(|e| anyhow!("encode: {e}"))?;
         let ft = bs.frame_type();
         if matches!(ft, FrameType::Skip | FrameType::Invalid) {
             return Ok(None);
@@ -68,7 +80,10 @@ impl H264Encoder {
             return Ok(None);
         }
         let key = matches!(ft, FrameType::IDR) || has_idr(&self.out);
-        Ok(Some(Encoded { data: self.out.clone(), key }))
+        Ok(Some(Encoded {
+            data: self.out.clone(),
+            key,
+        }))
     }
 }
 
@@ -96,7 +111,11 @@ mod tests {
     fn encodes_key_frame_then_delta() {
         let (w, h) = (320, 240);
         let mut enc = H264Encoder::new(w, h, 30.0, 1_000_000).unwrap();
-        let mut f = Frame { width: w, height: h, data: vec![0u8; w * h * 4] };
+        let mut f = Frame {
+            width: w,
+            height: h,
+            data: vec![0u8; w * h * 4],
+        };
         let first = enc.encode(&f, false).unwrap().expect("first frame");
         assert!(first.key);
         assert_eq!(&first.data[..4], &[0, 0, 0, 1], "Annex B start code");

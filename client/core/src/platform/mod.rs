@@ -31,7 +31,7 @@ pub trait Platform: Send + Sync {
 pub fn default_platform() -> Box<dyn Platform> {
     #[cfg(windows)]
     {
-        Box::new(windows::WindowsPlatform::default())
+        Box::new(windows::WindowsPlatform)
     }
     #[cfg(not(windows))]
     {

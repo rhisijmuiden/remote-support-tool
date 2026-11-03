@@ -12,7 +12,8 @@ use rtc::media_stream::MediaStreamTrack;
 use rtc::peer_connection::sdp::RTCSessionDescription;
 use rtc::rtp_transceiver::PayloadType;
 use rtc::rtp_transceiver::rtp_sender::{
-    RTCPFeedback, RTCRtpCodec, RTCRtpCodecParameters, RTCRtpCodingParameters, RTCRtpEncodingParameters, RtpCodecKind,
+    RTCPFeedback, RTCRtpCodec, RTCRtpCodecParameters, RTCRtpCodingParameters,
+    RTCRtpEncodingParameters, RtpCodecKind,
 };
 use tokio::sync::{Mutex, mpsc};
 use tokio_tungstenite::tungstenite::Message;
@@ -21,9 +22,9 @@ use webrtc::data_channel::{DataChannel, DataChannelEvent};
 use webrtc::media_stream::track_local::TrackLocal;
 use webrtc::media_stream::track_local::static_sample::TrackLocalStaticSample;
 use webrtc::peer_connection::{
-    MediaEngine, PeerConnection, PeerConnectionBuilder, PeerConnectionEventHandler, RTCConfigurationBuilder,
-    RTCIceCandidateInit, RTCIceServer, RTCPeerConnectionIceEvent, RTCPeerConnectionState, Registry,
-    SettingEngineBuilder, register_default_interceptors,
+    MediaEngine, PeerConnection, PeerConnectionBuilder, PeerConnectionEventHandler,
+    RTCConfigurationBuilder, RTCIceCandidateInit, RTCIceServer, RTCPeerConnectionIceEvent,
+    RTCPeerConnectionState, Registry, SettingEngineBuilder, register_default_interceptors,
 };
 use webrtc::rtp_transceiver::RtpSender;
 
@@ -47,6 +48,28 @@ pub struct SessionConfig {
     pub fps: f32,
     /// Product name for the on-screen banner.
     pub product_name: String,
+    /// Set to true to end the session from this side (for example the customer clicks End).
+    pub cancel: Option<tokio::sync::watch::Receiver<bool>>,
+}
+
+/// Stops the capture thread when the session future ends or is dropped.
+struct StopOnDrop(Arc<AtomicBool>);
+
+impl Drop for StopOnDrop {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::Relaxed);
+    }
+}
+
+async fn cancelled(c: &mut Option<tokio::sync::watch::Receiver<bool>>) {
+    match c {
+        Some(rx) => {
+            if rx.wait_for(|v| *v).await.is_err() {
+                std::future::pending::<()>().await;
+            }
+        }
+        None => std::future::pending::<()>().await,
+    }
 }
 
 struct EncodedFrame {
@@ -103,7 +126,11 @@ struct VideoOut {
 /// Runs one session until it ends and returns the reason.
 pub async fn run(cfg: SessionConfig, platform: Arc<dyn Platform>) -> Result<String> {
     let path = format!("/api/agent/v1/sessions/{}", cfg.request.session_id);
-    let ws = cfg.server.connect_ws(&path, &cfg.token).await.context("session socket")?;
+    let ws = cfg
+        .server
+        .connect_ws(&path, &cfg.token)
+        .await
+        .context("session socket")?;
     let (mut sink, mut stream) = ws.split();
     let (out_tx, mut out_rx) = mpsc::channel::<Message>(64);
     let writer = tokio::spawn(async move {
@@ -117,7 +144,9 @@ pub async fn run(cfg: SessionConfig, platform: Arc<dyn Platform>) -> Result<Stri
     let send = |s: Signal| {
         let tx = out_tx.clone();
         async move {
-            let _ = tx.send(Message::Text(serde_json::to_string(&s).unwrap().into())).await;
+            let _ = tx
+                .send(Message::Text(serde_json::to_string(&s).unwrap().into()))
+                .await;
         }
     };
 
@@ -130,6 +159,8 @@ pub async fn run(cfg: SessionConfig, platform: Arc<dyn Platform>) -> Result<Stri
     let mode = Arc::new(AtomicU8::new(MODE_NONE));
     let key = Arc::new(AtomicBool::new(true));
     let stop = Arc::new(AtomicBool::new(false));
+    let _stop_guard = StopOnDrop(stop.clone());
+    let mut cancel = cfg.cancel.clone();
     let (input_tx, input_rx) = stdmpsc::channel::<InputEvent>();
     let mut input_rx = Some(input_rx);
     let (frames_tx, mut frames_rx) = mpsc::channel::<EncodedFrame>(3);
@@ -150,10 +181,21 @@ pub async fn run(cfg: SessionConfig, platform: Arc<dyn Platform>) -> Result<Stri
                     MODE_WEBRTC => {
                         let v = video.lock().await;
                         if let Some(v) = v.as_ref() {
-                            let duration = last.map(|l| f.at.saturating_duration_since(l)).unwrap_or(Duration::from_millis(33));
+                            let duration = last
+                                .map(|l| f.at.saturating_duration_since(l))
+                                .unwrap_or(Duration::from_millis(33));
                             last = Some(f.at);
-                            let sample = Sample { data: f.data.into(), duration, ..Sample::new(f.at) };
-                            if let Err(e) = v.track.sample_writer(v.ssrc, v.pt).write_sample(&sample).await {
+                            let sample = Sample {
+                                data: f.data.into(),
+                                duration,
+                                ..Sample::new(f.at)
+                            };
+                            if let Err(e) = v
+                                .track
+                                .sample_writer(v.ssrc, v.pt)
+                                .write_sample(&sample)
+                                .await
+                            {
                                 debug!("write sample: {e}");
                             }
                         }
@@ -232,7 +274,17 @@ pub async fn run(cfg: SessionConfig, platform: Arc<dyn Platform>) -> Result<Stri
                 }
                 PcEvent::Input(ev) => { let _ = input_tx.send(ev); }
             },
-            Some(s) = screen_rx.recv() => send(s).await,
+            Some(s) = screen_rx.recv() => {
+                if let Signal::End { reason } = &s {
+                    send(s.clone()).await;
+                    break reason.clone();
+                }
+                send(s).await
+            }
+            _ = cancelled(&mut cancel) => {
+                send(Signal::End { reason: "customer_ended".into() }).await;
+                break "customer_ended".to_string();
+            }
         }
     };
 
@@ -242,8 +294,15 @@ pub async fn run(cfg: SessionConfig, platform: Arc<dyn Platform>) -> Result<Stri
     if let Some(p) = pc.take() {
         let _ = p.close().await;
     }
-    if !reason.starts_with("ended") && !reason.starts_with("server") {
-        send(Signal::End { reason: "agent_error".into() }).await;
+    if !reason.starts_with("ended")
+        && !reason.starts_with("server")
+        && reason != "customer_ended"
+        && reason != "capture_failed"
+    {
+        send(Signal::End {
+            reason: "agent_error".into(),
+        })
+        .await;
     }
     drop(out_tx);
     drop(frames_tx);
@@ -260,11 +319,21 @@ fn h264_codec() -> RTCRtpCodec {
         mime_type: "video/H264".to_owned(),
         clock_rate: 90000,
         channels: 0,
-        sdp_fmtp_line: "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f".to_owned(),
+        sdp_fmtp_line: "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f"
+            .to_owned(),
         rtcp_feedback: vec![
-            RTCPFeedback { typ: "nack".into(), parameter: "".into() },
-            RTCPFeedback { typ: "nack".into(), parameter: "pli".into() },
-            RTCPFeedback { typ: "ccm".into(), parameter: "fir".into() },
+            RTCPFeedback {
+                typ: "nack".into(),
+                parameter: "".into(),
+            },
+            RTCPFeedback {
+                typ: "nack".into(),
+                parameter: "pli".into(),
+            },
+            RTCPFeedback {
+                typ: "ccm".into(),
+                parameter: "fir".into(),
+            },
         ],
     }
 }
@@ -295,7 +364,10 @@ async fn answer(
     let codec = h264_codec();
     let mut media = MediaEngine::default();
     media.register_codec(
-        RTCRtpCodecParameters { rtp_codec: codec.clone(), payload_type: 102, ..Default::default() },
+        RTCRtpCodecParameters {
+            rtp_codec: codec.clone(),
+            payload_type: 102,
+        },
         RtpCodecKind::Video,
     )?;
     let registry = register_default_interceptors(Registry::new(), &mut media)?;
@@ -307,7 +379,11 @@ async fn answer(
         .request
         .ice_servers
         .iter()
-        .map(|s| RTCIceServer { urls: s.urls.clone(), username: s.username.clone(), credential: s.credential.clone() })
+        .map(|s| RTCIceServer {
+            urls: s.urls.clone(),
+            username: s.username.clone(),
+            credential: s.credential.clone(),
+        })
         .collect();
     let pc = PeerConnectionBuilder::new()
         .with_configuration(RTCConfigurationBuilder::new().with_ice_servers(ice).build())
@@ -328,17 +404,26 @@ async fn answer(
             "screen".into(),
             RtpCodecKind::Video,
             vec![RTCRtpEncodingParameters {
-                rtp_coding_parameters: RTCRtpCodingParameters { ssrc: Some(ssrc), ..Default::default() },
+                rtp_coding_parameters: RTCRtpCodingParameters {
+                    ssrc: Some(ssrc),
+                    ..Default::default()
+                },
                 codec: codec.clone(),
                 ..Default::default()
             }],
         ),
     )?);
-    let sender = pc.add_track(Arc::clone(&track) as Arc<dyn TrackLocal>).await?;
-    pc.set_remote_description(RTCSessionDescription::offer(offer_sdp.to_string())?).await?;
+    let sender = pc
+        .add_track(Arc::clone(&track) as Arc<dyn TrackLocal>)
+        .await?;
+    pc.set_remote_description(RTCSessionDescription::offer(offer_sdp.to_string())?)
+        .await?;
     let ans = pc.create_answer(None).await?;
     pc.set_local_description(ans).await?;
-    let local = pc.local_description().await.ok_or_else(|| anyhow!("no local description"))?;
+    let local = pc
+        .local_description()
+        .await
+        .ok_or_else(|| anyhow!("no local description"))?;
     let pt = negotiated_pt(&sender).await?;
     Ok((Box::new(pc), VideoOut { track, ssrc, pt }, local.sdp))
 }
@@ -369,9 +454,13 @@ fn start_media(
     std::thread::Builder::new()
         .name("rhis-capture".into())
         .spawn(move || {
-            if let Err(e) = media_loop(&*platform, fps, input_rx, &key, &stop, &frames_tx, &screen_tx) {
+            if let Err(e) = media_loop(
+                &*platform, fps, input_rx, &key, &stop, &frames_tx, &screen_tx,
+            ) {
                 warn!("capture stopped: {e:#}");
-                let _ = screen_tx.send(Signal::End { reason: "capture_failed".into() });
+                let _ = screen_tx.send(Signal::End {
+                    reason: "capture_failed".into(),
+                });
             }
         })
         .expect("spawn capture thread")
@@ -452,7 +541,12 @@ fn media_loop(
         }
         failures = 0;
         if enc.as_ref().map(|e| e.size()) != Some((frame.width, frame.height)) {
-            enc = Some(H264Encoder::new(frame.width, frame.height, fps, default_bitrate(frame.width, frame.height))?);
+            enc = Some(H264Encoder::new(
+                frame.width,
+                frame.height,
+                fps,
+                default_bitrate(frame.width, frame.height),
+            )?);
             key.store(true, Ordering::Relaxed);
             prev.clear();
             announce = true;
@@ -478,7 +572,11 @@ fn media_loop(
             if e.key {
                 key.store(false, Ordering::Relaxed);
             }
-            match frames_tx.try_send(EncodedFrame { data: e.data, key: e.key, at }) {
+            match frames_tx.try_send(EncodedFrame {
+                data: e.data,
+                key: e.key,
+                at,
+            }) {
                 Ok(()) => last_sent = at,
                 Err(mpsc::error::TrySendError::Full(_)) => key.store(true, Ordering::Relaxed),
                 Err(mpsc::error::TrySendError::Closed(_)) => return Ok(()),
