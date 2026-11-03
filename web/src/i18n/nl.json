@@ -13,7 +13,8 @@
     "logout": "Uitloggen",
     "menu": "Menu",
     "language": "Taal",
-    "theme": "Thema"
+    "theme": "Thema",
+    "quick": "Snelle hulp"
   },
   "common": {
     "save": "Opslaan",
@@ -61,7 +62,10 @@
     "restore_confirm": "Typ RESTORE om te bevestigen.",
     "invalid_channel": "Kies productie of test.",
     "update_failed": "De update kon niet worden geïnstalleerd.",
-    "not_found": "Niet gevonden."
+    "not_found": "Niet gevonden.",
+    "quick_not_found": "Geen open QuickSupport met deze code. Controleer de code met de klant en of QuickSupport nog open staat.",
+    "invalid_code": "Een code heeft 9 cijfers.",
+    "quick_too_many": "Te vaak een verkeerde code. Wacht 15 minuten en probeer het opnieuw."
   },
   "auth": {
     "tagline": "Hulp op afstand die je zelf host.",
@@ -263,5 +267,28 @@
     "admin_only": "Alleen beheerders kunnen het kanaal wijzigen of updates installeren.",
     "release_notes": "Wat is er nieuw",
     "source": "Broncode"
+  },
+  "quick": {
+    "title": "Snelle hulp",
+    "subtitle": "Help een klant eenmalig, zonder iets op de computer te installeren.",
+    "connect_title": "Verbinden met een code",
+    "connect_help": "Vraag de klant om de code van 9 cijfers die QuickSupport laat zien.",
+    "code": "Sessiecode",
+    "connect": "Verbinden",
+    "connecting": "Verbinden…",
+    "consent_note": "De klant ziet je naam en moet eerst op Toestaan klikken voordat je het scherm ziet.",
+    "download_title": "QuickSupport voor de klant",
+    "download_help": "Stuur de klant deze link. De klant start het bestand één keer; er wordt niets geïnstalleerd en er zijn geen beheerdersrechten nodig.",
+    "not_available": "QuickSupport is nog niet beschikbaar op deze server. Het wordt samen met de bestanden van de Windows-agent geïnstalleerd.",
+    "needs_https": "Deze server gebruikt geen HTTPS. QuickSupport verbindt alleen versleuteld, dus stel eerst HTTPS in.",
+    "link": "Downloadlink",
+    "copy_link": "Link kopiëren",
+    "copied": "Gekopieerd",
+    "download": "Downloaden",
+    "how_title": "Zo werkt het",
+    "how_1": "De klant downloadt QuickSupport via de link en start het.",
+    "how_2": "QuickSupport toont een code van 9 cijfers. De klant leest die aan je voor.",
+    "how_3": "Je vult de code hier in. De klant klikt op Toestaan.",
+    "how_4": "Als je klaar bent, beëindigt een van beide de sessie. Na het sluiten van QuickSupport werkt de code niet meer."
   }
 }

@@ -56,6 +56,11 @@ else
   (cd "$tmp" && grep " $ASSET\$" checksums.txt | sha256sum -c -)
   tar -xzf "$tmp/$ASSET" -C "$tmp"
   install -o rhis-remote -g rhis-remote -m 0755 "$tmp/rhis-remote" /opt/rhis-remote/bin/rhis-remote
+  # Windows clients (QuickSupport, agent) served by the gateway for download.
+  if [[ -d "$tmp/agent" ]]; then
+    install -d -o rhis-remote -g rhis-remote -m 0755 /opt/rhis-remote/agent
+    install -o rhis-remote -g rhis-remote -m 0644 "$tmp"/agent/* /opt/rhis-remote/agent/
+  fi
 fi
 /opt/rhis-remote/bin/rhis-remote version
 

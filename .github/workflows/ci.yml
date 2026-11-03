@@ -48,3 +48,26 @@ jobs:
           test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
           go vet ./...
           go test ./...
+
+  windows-clients:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            client/target
+          key: win-ci-${{ hashFiles('client/Cargo.lock') }}
+      - name: Test and build
+        working-directory: client
+        shell: bash
+        run: |
+          rustup update stable --no-self-update
+          cargo fmt --all --check
+          cargo test --workspace --locked
+          cargo build --workspace --release --locked
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rhis-quicksupport-windows
+          path: client/target/release/rhis-quicksupport.exe

@@ -9,6 +9,7 @@ import { Login, Setup } from "./pages/Auth";
 import { Dashboard } from "./pages/Dashboard";
 import { Devices } from "./pages/Devices";
 import { Customers } from "./pages/Customers";
+import { QuickSupport } from "./pages/QuickSupport";
 import { Users } from "./pages/Users";
 import { MailSettings } from "./pages/MailSettings";
 import { BackupSettings } from "./pages/BackupSettings";
@@ -51,6 +52,7 @@ export function App() {
           <Route path="/" element={<Dashboard />} />
           <Route path="/devices" element={<Devices />} />
           <Route path="/customers" element={<Customers />} />
+          <Route path="/quick" element={<QuickSupport />} />
           <Route path="/account" element={<Account />} />
           {admin && <Route path="/settings/users" element={<Users />} />}
           {admin && <Route path="/settings/mail" element={<MailSettings />} />}

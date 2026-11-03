@@ -103,10 +103,12 @@ func serve(cfgPath string) error {
 		for _, s := range cfg.Gateway.ICEServers {
 			ice = append(ice, agents.ICEServer{URLs: s.URLs, Username: s.Username, Credential: s.Credential})
 		}
-		a.Agents = &agents.Service{DB: pool, Audit: a.Audit, ICE: ice, AgentDir: cfg.Gateway.AgentDir}
+		a.Agents = &agents.Service{DB: pool, Audit: a.Audit, ICE: ice, AgentDir: cfg.Gateway.AgentDir,
+			Quick: agents.QuickOptions{PublicURL: cfg.PublicURL, ProductName: cfg.Branding.ProductName, CompanyName: cfg.Branding.CompanyName}}
 		if err := a.Agents.Start(ctx); err != nil {
 			return err
 		}
+		go a.Agents.QuickJanitor(ctx)
 	}
 	if cfg.HasRole("scheduler") {
 		a.Scheduler = &backup.Scheduler{Svc: a.Backup, OnDone: func(kind string, run *backup.Run, err error) {

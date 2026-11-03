@@ -13,6 +13,16 @@ Self-hosted remote support for Windows: remote control with unattended access, a
 - **Info and updates:** the Info button shows the version and checks GitHub releases. Switch between the production and test channel and install an update from the portal.
 - **One binary, several roles:** `roles: ["all"]` on one machine; later roles (gateway, relay) can run on separate servers.
 
+## Quick support (no install)
+
+A customer downloads one portable `.exe` from your server, starts it and reads out a 9-digit code. You enter the code in the portal, the customer clicks Allow, and you are connected. Nothing is installed, and the code stops working when the window closes. All traffic is encrypted (HTTPS, WSS and WebRTC). Details: [docs/quicksupport.md](docs/quicksupport.md).
+
+| | | |
+| --- | --- | --- |
+| ![QuickSupport code](docs/screenshots/qs-ready-en.png) | ![Allow request](docs/screenshots/qs-request-nl.png) | ![Session active](docs/screenshots/qs-active-en.png) |
+
+![Quick support in the portal](docs/screenshots/portal-quick-en.png)
+
 ## Install on Debian 13
 
 ```bash
@@ -51,6 +61,7 @@ RHIS_TEST_DATABASE_URL=postgres://localhost/rhis_test?sslmode=disable make test
 | --- | --- |
 | `server/` | Go server (`cmd/rhis-remote`, packages in `internal/`) |
 | `web/` | React + TypeScript portal (Vite, i18next) |
+| `client/` | Rust Windows clients (`quicksupport/`) |
 | `deploy/debian/` | Installer, systemd unit, example config |
 | `branding/` | RHIS house style: logos, colors, fonts |
 

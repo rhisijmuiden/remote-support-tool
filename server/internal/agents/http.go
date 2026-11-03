@@ -31,6 +31,7 @@ func (s *Service) AgentRoutes() http.Handler {
 	r.Get("/control", s.handleControl)
 	r.Get("/sessions/{id}", s.handleAgentSession)
 	r.Get("/download/windows", s.handleDownload)
+	s.quickAgentRoutes(r)
 	return r
 }
 
@@ -44,6 +45,7 @@ func (s *Service) PortalRoutes(r chi.Router) {
 	r.Post("/enrollment-tokens", s.handleCreateToken)
 	r.Delete("/enrollment-tokens/{id}", s.handleRevokeToken)
 	r.Get("/agent", s.handleAgentInfo)
+	s.quickPortalRoutes(r)
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {

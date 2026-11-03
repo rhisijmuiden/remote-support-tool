@@ -150,3 +150,10 @@ td .sub { display: block; font-size: 0.78rem; color: var(--muted); }
 .auth-form form { width: min(380px, 100%); display: grid; gap: 16px; }
 @media (max-width: 860px) { .auth { grid-template-columns: 1fr; } .auth-art { padding: 28px 20px; } }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+/* Quick support */
+.quick-code { font-family: var(--font); font-stretch: 125%; font-weight: 800; font-size: 1.9rem; letter-spacing: 0.04em; padding: 12px 14px; }
+.small { font-size: 0.82rem; }
+.steps { margin: 0; padding-left: 1.3em; display: grid; gap: 8px; }
+.steps li::marker { color: var(--accent-text, var(--koraal)); font-weight: 800; }
+.btn svg { width: 16px; height: 16px; flex-shrink: 0; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
