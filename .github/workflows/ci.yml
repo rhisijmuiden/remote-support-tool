@@ -1,0 +1,50 @@
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [main, test]
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: rhis_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      RHIS_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/rhis_test?sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: PostgreSQL 17 client (pg_dump for backup tests)
+        run: |
+          sudo apt-get install -y -q postgresql-common
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -y -q postgresql-client-17
+          echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
+      - name: Web
+        working-directory: web
+        run: |
+          npm ci
+          npx tsc -b
+          npx vitest run
+          npm run build
+      - name: Server
+        working-directory: server
+        run: |
+          test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
+          go vet ./...
+          go test ./...

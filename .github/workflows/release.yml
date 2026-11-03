@@ -1,0 +1,61 @@
+# Builds a release for every push to main (production) or test (pre-release).
+# The server's Info screen finds these releases to update itself.
+name: Release
+on:
+  push:
+    branches: [main, test]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Version
+        id: v
+        run: |
+          base="v$(cat VERSION)"
+          if [ "${GITHUB_REF_NAME}" = "main" ]; then
+            echo "tag=${base}" >> "$GITHUB_OUTPUT"
+            echo "channel=production" >> "$GITHUB_OUTPUT"
+            echo "pre=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${base}-test.${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+            echo "channel=test" >> "$GITHUB_OUTPUT"
+            echo "pre=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Skip if this production version exists
+        id: exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "${{ steps.v.outputs.tag }}" >/dev/null 2>&1; then
+            echo "Release ${{ steps.v.outputs.tag }} exists; bump VERSION to publish a new production release."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Build
+        if: steps.exists.outputs.skip != 'true'
+        run: make dist VERSION=${{ steps.v.outputs.tag }} CHANNEL=${{ steps.v.outputs.channel }}
+      - name: Publish
+        if: steps.exists.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          flags="--target ${GITHUB_SHA} --title ${{ steps.v.outputs.tag }} --generate-notes"
+          [ "${{ steps.v.outputs.pre }}" = "true" ] && flags="$flags --prerelease"
+          gh release create "${{ steps.v.outputs.tag }}" dist/rhis-remote_linux_amd64.tar.gz dist/checksums.txt $flags
