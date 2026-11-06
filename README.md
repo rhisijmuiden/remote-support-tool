@@ -59,9 +59,9 @@ The device and remote session screenshots come from a real server with the agent
 | --- | --- |
 | 1. Server foundation | Done (v0.1) |
 | 2. Windows agent and connectivity (NAT traversal, WebRTC, relay) | In test (v0.2), Windows hardware test pending |
-| 3. Quick support client (no install, session code) | In review ([#14](https://github.com/rhisijmuiden/remote-support-tool/pull/14)) |
+| 3. Quick support client (no install, session code) | In test |
 | 4. Session audit and recording | In test, including agent sessions |
-| 5. Client builder and signed central updates | Server and portal in test; the agent's update client is next |
+| 5. Client builder and signed central updates | In test, including the agent's updater; Windows hardware test pending |
 | 6. Multi-server and scale-out (relays, NATS cluster) | Relays, cluster and Servers page in test |
 | 7. Code signing and open-source release | Planned |
 

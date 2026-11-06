@@ -5,3 +5,4 @@ pub mod install;
 pub mod service;
 pub mod spawn;
 pub mod sys;
+pub mod update;

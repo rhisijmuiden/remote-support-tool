@@ -33,12 +33,15 @@ Agents authenticate with `Authorization: Bearer <device_token>`.
 ```http
 POST /api/agent/v1/enroll
 {"enroll_token": "…", "machine_id": "…", "hostname": "PC-01", "os_version": "Windows 11 Pro 24H2 (26100)", "agent_version": "0.2.0", "kind": "agent"}
-→ 200 {"device_id": 12, "device_code": "123 456 789", "device_token": "…"}
+→ 200 {"device_id": 12, "device_code": "123 456 789", "device_token": "…",
+        "update_keys": ["<base64 Ed25519>"], "channel": "production"}
 ```
 
 - `enroll_token` comes from the portal (Devices, Add device) or from a client build (step 4).
   The server tries its own `enrollment_tokens` table first, then any registered `agents.EnrollResolver`.
 - `machine_id` is the Windows `MachineGuid`. Enrolling the same machine again replaces its token and keeps the device row.
+- `update_keys` and `channel` are for agents without a client-builder configuration: they arrive over the
+  same TLS connection as the device token and are stored in `agent.json`. A client build's own keys and channel win.
 - The device token is 32 random bytes (base64url). The server only stores its SHA-256.
   The agent stores it in `%ProgramData%\RHIS Remote\agent.json`, readable only by SYSTEM and Administrators, encrypted with DPAPI (machine scope).
 
@@ -64,6 +67,7 @@ Server to agent:
 | `welcome` | `device_id`, `device_code`, `ping_interval` (seconds) |
 | `session_request` | `session_id`, `kind` (`unattended`, `attended`, `quick`), `user_name`, `recording` (bool), `ice_servers` |
 | `session_cancel` | `session_id` |
+| `update_available` | (none) The update policy or the releases changed; check `GET /api/agent/v1/update` (see [client-builder.md](client-builder.md)) |
 | `ping` | |
 
 On `session_request` the agent either answers `session_accept` and opens the session socket, or `session_reject`.
@@ -112,6 +116,8 @@ Coordinates are normalised to 0..1 of the shown monitor.
 - For each session the service starts `rhis-agent.exe session` in the active console session with the SYSTEM token,
   so it can capture the sign-in screen and UAC prompts. That process opens the session socket and runs WebRTC.
 - QuickSupport uses the same `rhis-core` crate in-process, without a service.
+- Updates: the service checks for a signed update, swaps `rhis-agent.exe` and restarts through
+  `rhis-agent.exe finish-update`, which rolls back when the new version does not start (see [client-builder.md](client-builder.md#for-the-agent-updates)).
 
 ## Session log
 

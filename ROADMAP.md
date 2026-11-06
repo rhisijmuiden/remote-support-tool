@@ -8,9 +8,9 @@ Every phase has a tracking issue labelled `roadmap` on GitHub. Detailed tasks ar
 | --- | --- | --- | --- |
 | 1. Server foundation | Done | v0.1 | #4 |
 | 2. Windows agent and connectivity | In test | v0.2 | #5 |
-| 3. Quick support client | Planned | v0.3 | #6 |
+| 3. Quick support client | In test | v0.3 | #6 |
 | 4. Session audit and recording | In progress | v0.4 | #7 |
-| 5. Client builder and central updates | In progress | v0.5 | #8 |
+| 5. Client builder and central updates | In test | v0.5 | #8 |
 | 6. Multi-server and scale-out | In progress | v0.6 | #9 |
 | 7. Code signing and open-source release | Planned | v1.0 | #10 |
 
@@ -70,9 +70,9 @@ Server, portal and the browser viewer are wired up; agent sessions are logged an
 - [x] "This session is being recorded" banner on the Windows side (phase 2 agent)
 - [ ] Per-customer or per-device recording policy override
 
-## 5. Client builder and central updates (in progress)
+## 5. Client builder and central updates (in test)
 
-Server and portal side are done; agents use them once the Windows agent from phase 2 is in. Details in [docs/client-builder.md](docs/client-builder.md).
+Server, portal and the agent's updater are in test; like the agent itself, the updater still has to run on real Windows hardware. Details in [docs/client-builder.md](docs/client-builder.md).
 
 - [x] Client builder in the portal: company logo, accent colour, product and company name, and an ordered failover list of servers (https only)
 - [x] Separate builds per customer with the enrolment token baked in; installer (unattended) and QuickSupport types; x64 and ARM64
@@ -81,8 +81,11 @@ Server and portal side are done; agents use them once the Windows agent from pha
 - [x] Update policy: newest or pinned version per channel (also to roll back), per-customer exceptions, staged rollout percentage
 - [x] Signed update manifests (Ed25519, key created by the server and embedded in every client), checked against size and SHA-256
 - [x] Authenticode signing on the server: PFX certificate (osslsigncode) or a signing command for hardware tokens, HSMs and cloud signing
-- [ ] Agent-side updater in the Windows agent (verify, download, swap, report), once the agent from phase 2 is merged
-- [ ] Push "update available" over the agent control channel instead of waiting for the next check
+- [x] Agent-side updater in the Windows agent: verify signature, download from its own server, check size and SHA-256, swap, report
+- [x] Automatic rollback when the new version does not start; a failed version is skipped for a week
+- [x] Push "update available" over the agent control channel, besides a check every six hours
+- [x] Agents enrolled with a plain enrolment token get the update key and channel at enrolment
+- [ ] Test the update and rollback on Windows 11 and Windows Server
 
 ## 6. Multi-server and scale-out (in progress)
 

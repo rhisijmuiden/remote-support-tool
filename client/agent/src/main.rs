@@ -11,6 +11,7 @@ mod buildcfg;
 mod config;
 mod secret;
 mod sysinfo;
+mod update;
 #[cfg(windows)]
 mod win;
 
@@ -50,6 +51,9 @@ enum Cmd {
     /// Entry point for the Windows service manager.
     #[command(hide = true)]
     Service,
+    /// Restarts the service after an update and rolls back when the new version does not start.
+    #[command(hide = true)]
+    FinishUpdate,
     /// Session helper started by the service in the console session.
     #[command(hide = true)]
     Session {
@@ -79,7 +83,10 @@ pub struct EnrollArgs {
 fn main() {
     let cli = Cli::parse();
     let path = cli.config.clone().unwrap_or_else(config::default_path);
-    let service_mode = matches!(cli.cmd, Some(Cmd::Service) | Some(Cmd::Session { .. }));
+    let service_mode = matches!(
+        cli.cmd,
+        Some(Cmd::Service) | Some(Cmd::Session { .. }) | Some(Cmd::FinishUpdate)
+    );
     agent::init_logging(&path, service_mode);
     if let Err(e) = real_main(cli, path) {
         tracing::error!("{e:#}");
@@ -118,6 +125,11 @@ fn real_main(cli: Cli, path: PathBuf) -> Result<()> {
                     );
                     println!("Machine ID:    {}", c.machine_id);
                     println!("Version:       {}", rhis_core::VERSION);
+                    println!(
+                        "Updates:       {} ({} key(s))",
+                        c.update_channel(),
+                        update::decode_keys(c.update_keys()).len()
+                    );
                 }
                 None => println!("Not enrolled ({} does not exist).", path.display()),
             }
@@ -134,6 +146,16 @@ fn real_main(cli: Cli, path: PathBuf) -> Result<()> {
             }
         }
         Cmd::Session { request, server } => agent::run_helper(&path, &request, &server),
+        Cmd::FinishUpdate => {
+            #[cfg(windows)]
+            {
+                win::update::finish(&path)
+            }
+            #[cfg(not(windows))]
+            {
+                bail!("updates are installed by the Windows service")
+            }
+        }
     }
 }
 
@@ -198,6 +220,9 @@ fn enroll(path: &std::path::Path, a: EnrollArgs) -> Result<AgentConfig> {
     cfg.device_code = res.device_code;
     cfg.set_token(&res.device_token)?;
     cfg.insecure_dev = a.insecure_dev;
+    // Learned over the same TLS connection that handed out the device token.
+    cfg.update_keys = res.update_keys;
+    cfg.channel = res.channel;
     if embedded.is_some() {
         cfg.build = embedded;
     }

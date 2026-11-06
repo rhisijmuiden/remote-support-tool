@@ -104,6 +104,8 @@ pub struct Agent {
     pub launcher: Launcher,
     pub token: String,
     pub active: Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
+    /// Woken when the server says an update is available.
+    pub update_wake: Arc<tokio::sync::Notify>,
 }
 
 #[async_trait::async_trait]
@@ -169,7 +171,13 @@ impl ControlHandler for Agent {
     }
 
     async fn on_message(&self, msg: serde_json::Value) {
-        info!("server message: {}", msg["type"]);
+        match msg["type"].as_str() {
+            Some("update_available") => {
+                info!("the server has an update");
+                self.update_wake.notify_one();
+            }
+            _ => info!("server message: {}", msg["type"]),
+        }
     }
 
     fn console_user(&self) -> String {
@@ -199,6 +207,7 @@ pub async fn run_foreground(cfg: AgentConfig, _path: std::path::PathBuf) -> Resu
         launcher: Launcher::InProcess,
         token,
         active: Default::default(),
+        update_wake: Default::default(),
     });
     tokio::select! {
         r = run_control(agent) => r,

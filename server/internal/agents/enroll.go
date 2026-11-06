@@ -25,6 +25,11 @@ type EnrollResponse struct {
 	DeviceID    int64  `json:"device_id"`
 	DeviceCode  string `json:"device_code"`
 	DeviceToken string `json:"device_token"`
+	// UpdateKeys are the public keys (base64 Ed25519) that sign agent updates,
+	// for agents enrolled without a client-builder configuration.
+	UpdateKeys []string `json:"update_keys,omitempty"`
+	// Channel is the server's release channel, the default for such agents.
+	Channel string `json:"channel,omitempty"`
 }
 
 func clean(s string, max int) string {
@@ -115,6 +120,12 @@ func (s *Service) Enroll(ctx context.Context, in EnrollRequest, ip string) (*Enr
 		s.Disconnect(out.DeviceID, "reenrolled")
 	}
 	s.Audit.Record(ctx, audit.Actor{IP: ip}, "device.enrolled", in.Hostname, map[string]any{"device_id": out.DeviceID, "reenrolled": reenrolled})
+	if s.Quick.UpdateKeys != nil {
+		out.UpdateKeys = s.Quick.UpdateKeys()
+	}
+	if s.Quick.Channel != nil {
+		out.Channel = s.Quick.Channel(ctx)
+	}
 	return out, nil
 }
 

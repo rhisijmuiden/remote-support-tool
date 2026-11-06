@@ -126,6 +126,20 @@ func (s *Service) Notify(deviceID int64, msg any) error {
 	return c.send(msg)
 }
 
+// NotifyAll writes a JSON message on every control channel open on this server.
+// It does not wait for the agents.
+func (s *Service) NotifyAll(msg any) {
+	s.mu.Lock()
+	conns := make([]*agentConn, 0, len(s.conns))
+	for _, c := range s.conns {
+		conns = append(conns, c)
+	}
+	s.mu.Unlock()
+	for _, c := range conns {
+		go c.send(msg) // a slow agent must not hold up the others
+	}
+}
+
 // Disconnect closes a device's control channel, for example after it was deleted.
 func (s *Service) Disconnect(deviceID int64, reason string) {
 	s.mu.Lock()

@@ -73,16 +73,36 @@ fn run_service() -> Result<()> {
         .unwrap_or_else(crate::config::default_path);
     let result = crate::agent::runtime().block_on(async move {
         let cfg = AgentConfig::load(&path)?.context("not enrolled: run rhis-agent install")?;
+        // Before anything that can fail: tell the update helper this version starts.
+        crate::update::mark_started(&path);
         let token = cfg.token()?;
+        let wake = Arc::new(tokio::sync::Notify::new());
+        let restart = Arc::new(tokio::sync::Notify::new());
         let agent = Arc::new(Agent {
-            cfg,
+            cfg: cfg.clone(),
             launcher: Launcher::Helper,
-            token,
+            token: token.clone(),
             active: Default::default(),
+            update_wake: wake.clone(),
         });
+        let cfg_path = path.clone();
+        let updater = Arc::new(crate::update::Updater {
+            cfg,
+            cfg_path: path.clone(),
+            token,
+            wake,
+            active: agent.active.clone(),
+            restart: restart.clone(),
+            apply: Box::new(move |bytes, p| crate::win::update::apply(&cfg_path, bytes, p)),
+        });
+        tokio::spawn(updater.run());
         tokio::select! {
             r = crate::agent::run_control(agent) => r,
             _ = stop_rx.wait_for(|s| *s) => Ok(()),
+            _ = restart.notified() => {
+                info!("stopping for the update; the update helper starts the new version");
+                Ok(())
+            }
         }
     });
     if let Err(e) = &result {

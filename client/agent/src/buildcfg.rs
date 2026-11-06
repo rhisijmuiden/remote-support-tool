@@ -14,6 +14,8 @@ const MAGIC: &[u8; 8] = b"RHISCFG1";
 #[serde(default)]
 pub struct BuildConfig {
     pub v: u32,
+    /// A number from the server; older builds wrote a string.
+    #[serde(deserialize_with = "num_or_string")]
     pub build_id: String,
     pub product_name: String,
     pub company_name: String,
@@ -29,6 +31,14 @@ pub struct BuildConfig {
     pub channel: String,
     /// Base64 ed25519 public keys for update signatures.
     pub update_keys: Vec<String>,
+}
+
+fn num_or_string<'de, D: serde::Deserializer<'de>>(d: D) -> Result<String, D::Error> {
+    Ok(match serde_json::Value::deserialize(d)? {
+        serde_json::Value::String(s) => s,
+        serde_json::Value::Number(n) => n.to_string(),
+        _ => String::new(),
+    })
 }
 
 /// End of the data that belongs to the image: the start of the certificate table, or the file size.
@@ -125,5 +135,16 @@ mod tests {
         f.extend_from_slice(&[0xAAu8; 64]); // the signature
         let c = read_from(&mut Cursor::new(f)).unwrap().unwrap();
         assert_eq!(c.build_id, "b1");
+    }
+
+    #[test]
+    fn reads_server_config() {
+        // As server/internal/builder writes it: build_id is a number.
+        let json = r#"{"v":1,"build_id":12,"product_name":"RHIS Remote","company_name":"RHIS","logo_png":"iVBO","servers":["https://remote.example"],"enroll_token":"rbe_x","mode":"install","channel":"test","update_keys":["a2V5"]}"#;
+        let c = read_from(&mut Cursor::new(with_trailer(vec![0u8; 100], json)))
+            .unwrap()
+            .unwrap();
+        assert_eq!((c.build_id.as_str(), c.channel.as_str()), ("12", "test"));
+        assert_eq!(c.update_keys, vec!["a2V5"]);
     }
 }

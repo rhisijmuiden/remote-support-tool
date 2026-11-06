@@ -201,6 +201,10 @@ func serve(cfgPath string) error {
 					st, _ := a.Update.Settings(ctx)
 					return st.Channel
 				}}}
+		// Tell online agents to check for an update when the policy or the releases change.
+		// Agents on other servers of a cluster find it with their regular check.
+		gw := a.Gateway
+		agentUpd.Changed = func() { gw.NotifyAll(map[string]string{"type": "update_available"}) }
 		if err := a.Gateway.Start(ctx); err != nil {
 			return err
 		}

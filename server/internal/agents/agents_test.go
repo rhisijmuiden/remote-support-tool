@@ -82,7 +82,8 @@ func TestEnrollControlAndSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	user := &auth.User{ID: uid, Email: "t@example.com", Name: "Tess", Role: "technician"}
-	svc := &Service{DB: pool, Audit: &audit.Log{DB: pool}, PingInterval: time.Second, ICE: StaticICE{{URLs: []string{"stun:stun.example.com:3478"}}}}
+	svc := &Service{DB: pool, Audit: &audit.Log{DB: pool}, PingInterval: time.Second, ICE: StaticICE{{URLs: []string{"stun:stun.example.com:3478"}}},
+		Quick: QuickOptions{UpdateKeys: func() []string { return []string{"a2V5"} }, Channel: func(context.Context) string { return "test" }}}
 	if err := svc.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -117,6 +118,10 @@ func TestEnrollControlAndSession(t *testing.T) {
 	if code := postJSON(t, srv.URL+"/api/agent/v1/enroll", req, &en); code != 200 || en.DeviceToken == "" || len(en.DeviceCode) != 9 {
 		t.Fatalf("enroll: %d %+v", code, en)
 	}
+	// Agents enrolled without a client build learn the update keys and channel here.
+	if len(en.UpdateKeys) != 1 || en.UpdateKeys[0] != "a2V5" || en.Channel != "test" {
+		t.Fatalf("enroll update settings: %+v", en)
+	}
 	// The token had one use.
 	if code := postJSON(t, srv.URL+"/api/agent/v1/enroll", req, nil); code != 403 {
 		t.Fatalf("token reuse: %d", code)
@@ -137,6 +142,20 @@ func TestEnrollControlAndSession(t *testing.T) {
 	var m map[string]any
 	if err := wsjson.Read(cctx, ctl, &m); err != nil || m["type"] != "welcome" {
 		t.Fatalf("welcome: %v %v", m, err)
+	}
+	// A change of the update policy reaches every online agent.
+	svc.NotifyAll(map[string]string{"type": "update_available"})
+	for {
+		m = nil
+		if err := wsjson.Read(cctx, ctl, &m); err != nil {
+			t.Fatalf("update_available: %v", err)
+		}
+		if m["type"] == "update_available" {
+			break
+		}
+		if m["type"] == "ping" {
+			wsjson.Write(cctx, ctl, map[string]string{"type": "pong"})
+		}
 	}
 	var online bool
 	var lastUser string

@@ -21,6 +21,10 @@ pub struct AgentConfig {
     pub device_token: String,
     /// Settings from a branded build, kept so a later update without them still knows them.
     pub build: Option<BuildConfig>,
+    /// Update keys handed out at enrollment, for agents without a branded build.
+    pub update_keys: Vec<String>,
+    /// Release channel handed out at enrollment ("production" or "test").
+    pub channel: String,
     /// Development only: allow http:// to localhost.
     pub insecure_dev: bool,
 }
@@ -55,6 +59,23 @@ impl AgentConfig {
     pub fn set_token(&mut self, token: &str) -> Result<()> {
         self.device_token = secret::protect(token)?;
         Ok(())
+    }
+
+    /// The Ed25519 keys (base64) that sign updates for this agent.
+    pub fn update_keys(&self) -> &[String] {
+        match &self.build {
+            Some(b) if !b.update_keys.is_empty() => &b.update_keys,
+            _ => &self.update_keys,
+        }
+    }
+
+    /// The release channel this agent follows.
+    pub fn update_channel(&self) -> &str {
+        let c = match &self.build {
+            Some(b) if !b.channel.is_empty() => b.channel.as_str(),
+            _ => self.channel.as_str(),
+        };
+        if c == "test" { "test" } else { "production" }
     }
 
     pub fn product_name(&self) -> String {

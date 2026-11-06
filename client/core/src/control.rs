@@ -200,6 +200,12 @@ pub struct Enrollment {
     pub device_id: i64,
     pub device_code: String,
     pub device_token: String,
+    /// Public keys (base64 Ed25519) that sign updates, from the server.
+    #[serde(default)]
+    pub update_keys: Vec<String>,
+    /// The server's release channel.
+    #[serde(default)]
+    pub channel: String,
 }
 
 /// Trades an enrollment token for a device token.

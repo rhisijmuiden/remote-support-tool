@@ -101,6 +101,18 @@ POST /api/agent/v1/update/report
 
 `server/internal/agentupdate/signing.go` (`Verify`) is the reference verifier.
 
+### How the Windows agent installs an update
+
+`client/agent/src/update.rs` and `client/agent/src/win/update.rs`:
+
+1. **When.** The service checks 30 seconds to 2 minutes after it starts, then every six hours (plus up to 30 minutes, so agents do not all ask at once). When an administrator changes the update policy or a customer exception, or a release is imported, the server sends `{"type": "update_available"}` to every agent connected to it, and those agents check within two minutes. Agents connected to another server of a cluster find it with their next regular check.
+2. **Which keys.** The keys from the client build (`update_keys`), or for an agent enrolled with a plain token, the keys the server returned at enrolment. Without a key the agent does not update.
+3. **Check.** Signature, expiry, product `rhis-agent`, OS, architecture and device ID must match. A newer version is installed; an older one only with `allow_downgrade`.
+4. **Download.** Only the path of the manifest `url` is used: the file is fetched from the server the agent is already talking to, with the same TLS settings, so the device token never goes to another host. Size and SHA-256 are checked while the file arrives, and once more right before it is installed. Downloads go to `%ProgramData%\RHIS Remote\updates`, which only SYSTEM and Administrators can write.
+5. **Wait for sessions.** While a remote session is running, the update waits.
+6. **Swap.** The service renames `rhis-agent.exe` to `rhis-agent.old.exe`, writes the new file in its place, records the update in `updates\pending.json`, starts `rhis-agent.exe finish-update` and stops itself.
+7. **Restart and roll back.** `finish-update` starts the service again and waits up to 90 seconds for the new version to report that it started. If it does not, it puts the old executable back and starts that. The old version then reports `failed` and skips that version for a week; the new version reports `installed` and removes the old file.
+
 ## Configuration
 
 ```yaml

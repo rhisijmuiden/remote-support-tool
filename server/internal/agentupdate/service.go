@@ -48,8 +48,17 @@ type Service struct {
 	HTTP                *http.Client
 	// Keep is how many releases per product/arch/channel stay after a sync (pinned ones always stay).
 	Keep int
+	// Changed is called after something changed that can give devices a new
+	// update (policy, exception, new release), so online agents can check now.
+	Changed func()
 
 	syncMu sync.Mutex
+}
+
+func (s *Service) changed() {
+	if s.Changed != nil {
+		s.Changed()
+	}
 }
 
 func (s *Service) dir() string { return filepath.Join(s.DataDir, "agents") }
@@ -78,7 +87,11 @@ func (s *Service) SetPolicy(ctx context.Context, p Policy) error {
 			}
 		}
 	}
-	return s.Store.Put(ctx, policySettings, p)
+	if err := s.Store.Put(ctx, policySettings, p); err != nil {
+		return err
+	}
+	s.changed()
+	return nil
 }
 
 func (s *Service) Overrides(ctx context.Context) ([]Override, error) {
@@ -112,6 +125,9 @@ func (s *Service) SetOverride(ctx context.Context, customerID int64, mode, ver s
 	switch mode {
 	case "":
 		_, err := s.DB.Exec(ctx, `DELETE FROM customer_update_policies WHERE customer_id=$1`, customerID)
+		if err == nil {
+			s.changed()
+		}
 		return err
 	case "off":
 		ver = ""
@@ -124,6 +140,9 @@ func (s *Service) SetOverride(ctx context.Context, customerID int64, mode, ver s
 	}
 	_, err := s.DB.Exec(ctx, `INSERT INTO customer_update_policies(customer_id, mode, version) VALUES($1,$2,NULLIF($3,''))
 		ON CONFLICT(customer_id) DO UPDATE SET mode=EXCLUDED.mode, version=EXCLUDED.version, updated_at=now()`, customerID, mode, ver)
+	if err == nil {
+		s.changed()
+	}
 	return err
 }
 
@@ -255,6 +274,9 @@ func (s *Service) Import(ctx context.Context, in ImportInput, exe []byte) (*Rele
 	r, err := pgx.CollectExactlyOneRow(rows, scanRelease)
 	if err != nil && strings.Contains(err.Error(), "duplicate key") {
 		return nil, errors.New("release_exists")
+	}
+	if err == nil {
+		s.changed()
 	}
 	return &r, err
 }

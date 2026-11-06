@@ -228,17 +228,18 @@ type Event struct {
 
 func (s *Service) Overview(ctx context.Context) (*Overview, error) {
 	out := &Overview{PublicKey: s.Signer.PublicKey(), Fingerprint: s.Signer.Fingerprint()}
-	rows, err := s.DB.Query(ctx, `SELECT coalesce(agent_version,''), count(*), count(*) FILTER (WHERE online) FROM devices GROUP BY 1`)
+	rows, err := s.DB.Query(ctx, `SELECT coalesce(agent_version,''), count(*), count(*) FILTER (WHERE online) FROM devices WHERE kind='agent' GROUP BY 1`)
 	if err != nil {
 		return nil, err
 	}
-	out.Versions, err = pgx.CollectRows(rows, func(r pgx.CollectableRow) (VersionCount, error) {
+	counts, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (VersionCount, error) {
 		var v VersionCount
 		return v, r.Scan(&v.Version, &v.Devices, &v.Online)
 	})
 	if err != nil {
 		return nil, err
 	}
+	out.Versions = mergeVersions(counts)
 	sortVersions(out.Versions)
 	rows, err = s.DB.Query(ctx, `SELECT e.at, e.device_id, d.hostname, e.from_version, e.to_version, e.status, e.error
 		FROM agent_update_events e LEFT JOIN devices d ON d.id=e.device_id ORDER BY e.at DESC LIMIT 100`)
@@ -250,6 +251,25 @@ func (s *Service) Overview(ctx context.Context) (*Overview, error) {
 		return e, r.Scan(&e.At, &e.DeviceID, &e.Hostname, &e.From, &e.To, &e.Status, &e.Error)
 	})
 	return out, err
+}
+
+// mergeVersions counts "0.2.0" (as agents report it) and "v0.2.0" as one version.
+func mergeVersions(in []VersionCount) []VersionCount {
+	out := []VersionCount{}
+	idx := map[string]int{}
+	for _, v := range in {
+		if c := CanonVersion(v.Version); c != "" {
+			v.Version = c
+		}
+		if i, ok := idx[v.Version]; ok {
+			out[i].Devices += v.Devices
+			out[i].Online += v.Online
+			continue
+		}
+		idx[v.Version] = len(out)
+		out = append(out, v)
+	}
+	return out
 }
 
 func sortVersions(v []VersionCount) {

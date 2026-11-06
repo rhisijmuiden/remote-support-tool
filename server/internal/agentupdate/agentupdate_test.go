@@ -107,3 +107,10 @@ func TestSignVerify(t *testing.T) {
 		t.Fatalf("fingerprint %q", s.Fingerprint())
 	}
 }
+
+func TestMergeVersions(t *testing.T) {
+	got := mergeVersions([]VersionCount{{Version: "0.2.0", Devices: 1, Online: 1}, {Version: "v0.2.0", Devices: 2}, {Version: "", Devices: 3}})
+	if len(got) != 2 || got[0].Version != "v0.2.0" || got[0].Devices != 3 || got[0].Online != 1 || got[1].Devices != 3 {
+		t.Fatalf("got %+v", got)
+	}
+}
