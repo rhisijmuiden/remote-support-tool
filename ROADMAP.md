@@ -8,7 +8,7 @@ Every phase has a tracking issue labelled `roadmap` on GitHub. Detailed tasks ar
 | --- | --- | --- | --- |
 | 1. Server foundation | Done | v0.1 | #4 |
 | 2. Windows agent and connectivity | In test | v0.2 | #5 |
-| 3. Quick support client | Planned | v0.3 | #6 |
+| 3. Quick support client | In test | v0.3 | #6 |
 | 4. Session audit and recording | In progress | v0.4 | #7 |
 | 5. Client builder and central updates | In progress | v0.5 | #8 |
 | 6. Multi-server and scale-out | In progress | v0.6 | #9 |
@@ -46,13 +46,16 @@ The core of the product: reach a Windows machine behind any NAT router and contr
 - [ ] Hardware and OS inventory per device (hostname, OS version and last user are in already)
 - [ ] Faster capture with DXGI Desktop Duplication (GDI for now)
 
-## 3. Quick support client
+## 3. Quick support client (in test)
 
-A one-off client for ad-hoc support, without installation.
+A one-off client for ad-hoc support, without installation. Merged in #14; details in [docs/quicksupport.md](docs/quicksupport.md). Not yet run on real Windows hardware.
 
-- [ ] Single portable `.exe`, no admin rights or install needed
-- [ ] Shows a short session code; the technician enters it in the portal
-- [ ] The user approves the session and can end it at any time; nothing stays behind after closing
+- [x] Single portable `.exe`, no admin rights or install needed
+- [x] Shows a 9-digit session code; the technician enters it in the portal (Quick support page)
+- [x] The user approves every session and can end it at any time; closing the window retires the code
+- [x] Server download with the server address, branding and update keys embedded; client builder QuickSupport builds
+- [x] Info dialog with version and signed updates
+- [ ] Test on Windows 11 and Windows Server hardware
 - [ ] Optional upgrade from a quick session to a permanent unattended install
 
 ## 4. Session audit and recording (in progress)
